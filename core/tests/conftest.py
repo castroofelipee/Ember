@@ -77,6 +77,9 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
     app.dependency_overrides[get_db] = override_get_db
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    # https, not http: the refresh-token cookie is Secure (docs/authentication.md
+    # §4.4), and httpx's cookie jar correctly refuses to resend a Secure cookie
+    # over a plain http:// origin — matching real browser behavior.
+    async with AsyncClient(transport=transport, base_url="https://test") as ac:
         yield ac
     app.dependency_overrides.clear()
