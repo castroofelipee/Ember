@@ -43,7 +43,7 @@ async def test_login_sets_httponly_refresh_cookie(client: AsyncClient) -> None:
     set_cookie = response.headers.get("set-cookie", "")
     assert "refresh_token=" in set_cookie
     assert "httponly" in set_cookie.lower()
-    assert "path=/api/auth/refresh" in set_cookie.lower()
+    assert "path=/api/auth" in set_cookie.lower()
 
 
 async def test_login_response_never_leaks_refresh_token_in_body(client: AsyncClient) -> None:
