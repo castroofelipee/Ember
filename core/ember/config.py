@@ -12,8 +12,8 @@ env = venvalid(
 )
 
 
-def database_url() -> str:
+def database_url(*, database: str | None = None) -> str:
     return (
         f"postgresql+psycopg://{env['DATABASE_USER']}:{env['DATABASE_PASSWORD']}"
-        f"@{env['DATABASE_HOST']}:{env['DATABASE_PORT']}/{env['DATABASE_NAME']}"
+        f"@{env['DATABASE_HOST']}:{env['DATABASE_PORT']}/{database or env['DATABASE_NAME']}"
     )

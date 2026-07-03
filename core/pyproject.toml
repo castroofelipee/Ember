@@ -5,7 +5,9 @@ description = "Private and self-hosted calendar for daily use"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.18.5",
+    "argon2-cffi>=23.1",
     "crudadmin>=0.5.0",
+    "email-validator>=2.3",
     "fastapi>=0.115",
     "fastapi-env-banner>=0.1.0",
     "fastapi-ht>=0.2.0",
@@ -26,6 +28,7 @@ build-backend = "hatchling.build"
 dev = [
     "httpx>=0.28",
     "pytest>=8.3",
+    "pytest-asyncio>=0.24",
     "ruff>=0.9",
 ]
 
@@ -34,3 +37,5 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
