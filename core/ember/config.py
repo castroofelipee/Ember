@@ -8,6 +8,9 @@ env = venvalid(
         "DATABASE_PASSWORD": str_(),
         "DATABASE_NAME": str_(),
         "DATABASE_ECHO": bool_(),
+        "JWT_SECRET_KEY": str_(),
+        "JWT_ACCESS_TOKEN_TTL_MINUTES": int_(default=15),
+        "REFRESH_TOKEN_TTL_DAYS": int_(default=30),
     }
 )
 

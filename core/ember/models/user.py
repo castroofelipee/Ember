@@ -7,6 +7,7 @@ from ember.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from ember.models.credential import Credential
+    from ember.models.session import Session
     from ember.models.user_preferences import UserPreferences
 
 
@@ -21,6 +22,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     preferences: Mapped["UserPreferences | None"] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
+    )
+    sessions: Mapped[list["Session"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
     )
 
     __table_args__ = (

@@ -1,7 +1,15 @@
+import hashlib
+import secrets
+
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
 _hasher = PasswordHasher()
+
+# A syntactically valid hash with no matching password, used to keep login's
+# response time similar whether or not the email exists (docs/authentication.md
+# §1.4 step 2 — avoids leaking account existence via timing).
+_DUMMY_PASSWORD_HASH = _hasher.hash(secrets.token_urlsafe(32))
 
 
 def hash_password(password: str) -> str:
@@ -13,3 +21,15 @@ def verify_password(password_hash: str, password: str) -> bool:
         return _hasher.verify(password_hash, password)
     except (VerifyMismatchError, InvalidHashError):
         return False
+
+
+def verify_password_timing_safe_dummy(password: str) -> None:
+    verify_password(_DUMMY_PASSWORD_HASH, password)
+
+
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
