@@ -1,7 +1,0 @@
-[project]
-name = "Ember"
-version = "0.1.0"
-description = "Private and self-hosted calendar for daily use"
-readme = "README.md"
-requires-python = ">=3.12"
-dependencies = []
