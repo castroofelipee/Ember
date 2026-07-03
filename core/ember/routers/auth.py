@@ -9,6 +9,7 @@ from ember.services.auth import (
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     login,
+    logout,
     refresh,
     signup,
 )
@@ -16,7 +17,10 @@ from ember.services.auth import (
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 REFRESH_TOKEN_COOKIE = "refresh_token"
-REFRESH_TOKEN_COOKIE_PATH = "/api/auth/refresh"
+# Scoped to /api/auth (not just /api/auth/refresh): per RFC 6265, a cookie's Path
+# must be a prefix of the request path, so /api/auth/logout would never receive
+# a cookie scoped to /api/auth/refresh alone.
+REFRESH_TOKEN_COOKIE_PATH = "/api/auth"
 
 
 def _set_refresh_cookie(response: Response, raw_token: str) -> None:
@@ -90,3 +94,20 @@ async def refresh_route(
 
     _set_refresh_cookie(response, new_refresh_token)
     return LoginResponse(access_token=access_token)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_route(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    raw_token = request.cookies.get(REFRESH_TOKEN_COOKIE)
+    await logout(db, raw_token)
+    response.delete_cookie(
+        key=REFRESH_TOKEN_COOKIE,
+        path=REFRESH_TOKEN_COOKIE_PATH,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )

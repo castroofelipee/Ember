@@ -140,3 +140,30 @@ async def refresh(session: AsyncSession, raw_token: str) -> tuple[str, str]:
 
     access_token = create_access_token(user_id=login_session.user_id, session_id=login_session.id)
     return access_token, raw_new_token
+
+
+async def logout(session: AsyncSession, raw_token: str | None) -> None:
+    """Revokes the session tied to the presented refresh token, if any.
+
+    Deliberately a no-op — never an error — when the cookie is missing or
+    doesn't match anything: logout must be safe to call repeatedly or with a
+    stale/already-cleared cookie (docs/authentication.md §1.6), and revealing
+    "that token wasn't valid" gains an attacker nothing worth leaking.
+    """
+    if raw_token is None:
+        return
+
+    token = (
+        await session.execute(
+            select(RefreshToken)
+            .where(RefreshToken.token_hash == hash_refresh_token(raw_token))
+            .options(selectinload(RefreshToken.session))
+        )
+    ).scalar_one_or_none()
+
+    if token is None:
+        return
+
+    if token.session.revoked_at is None:
+        token.session.revoked_at = datetime.now(timezone.utc)
+        await session.flush()
