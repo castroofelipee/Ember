@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-import { DEFAULT_PREFERENCES, type Calendar, type Preferences, type TimeFormat } from "@/lib/types";
+import {
+  DEFAULT_PREFERENCES,
+  type Calendar,
+  type Preferences,
+  type RecurrenceRule,
+  type TimeFormat,
+} from "@/lib/types";
 
 const HOUR_PX = 56;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -38,6 +44,8 @@ export type WeekEvent = {
   end: Date;
   color: string;
   allDay?: boolean;
+  /** Set on every occurrence of a recurring series; identical across occurrences. */
+  recurrence?: RecurrenceRule | null;
 };
 
 export type CalendarView = "week" | "day";
@@ -273,7 +281,7 @@ export function WeekView({
               {dayAllDay.map((event) => (
                 <div
                   className="week-event week-event--allday"
-                  key={event.id}
+                  key={`${event.id}-${event.start.getTime()}`}
                   style={{
                     background: hexToRgba(event.color, 0.32),
                     borderLeft: `3px solid ${event.color}`,
@@ -358,7 +366,7 @@ export function WeekView({
                   return (
                     <div
                       className="week-event"
-                      key={event.id}
+                      key={`${event.id}-${event.start.getTime()}`}
                       style={{
                         top,
                         height,

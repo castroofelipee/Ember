@@ -16,6 +16,18 @@ export type Calendar = {
 /** Mirrors ember.models.calendar.DEFAULT_CALENDAR_COLOR. */
 export const DEFAULT_CALENDAR_COLOR = "#4f46e5";
 
+export type RecurrenceFreq = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
+
+/** Mirrors ember.schemas.events.RecurrenceRule. `by_weekday` is 0=Monday..6=Sunday
+ * (weekly only); at most one of `count`/`until` is set, neither means "never ends". */
+export type RecurrenceRule = {
+  freq: RecurrenceFreq;
+  interval: number;
+  by_weekday: number[] | null;
+  count: number | null;
+  until: string | null;
+};
+
 export type EventItem = {
   id: string;
   calendar_id: string;
@@ -27,6 +39,7 @@ export type EventItem = {
   all_day: boolean;
   color: string | null;
   attendees: string[];
+  recurrence: RecurrenceRule | null;
 };
 
 /** Google-style named event colors. `value` is null for "calendar default". */

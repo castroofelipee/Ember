@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from httpx import AsyncClient
 
 SIGNUP_URL = "/api/auth/signup"
@@ -273,3 +275,181 @@ async def test_list_events_in_others_workspace_returns_404(client: AsyncClient) 
     )
 
     assert response.status_code == 404
+
+
+async def test_create_event_with_daily_recurrence_and_count(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+
+    response = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "count": 3}),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["recurrence"] == {
+        "freq": "DAILY",
+        "interval": 1,
+        "by_weekday": None,
+        "count": 3,
+        "until": None,
+    }
+
+
+async def test_create_event_rejects_count_and_until_together(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+
+    response = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(
+            recurrence={"freq": "DAILY", "count": 3, "until": "2026-08-01T00:00:00+00:00"}
+        ),
+    )
+
+    assert response.status_code == 422
+
+
+async def test_create_event_rejects_by_weekday_on_non_weekly(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+
+    response = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "by_weekday": [0, 2]}),
+    )
+
+    assert response.status_code == 422
+
+
+async def test_create_event_rejects_bad_weekday_value(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+
+    response = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "WEEKLY", "by_weekday": [7]}),
+    )
+
+    assert response.status_code == 422
+
+
+async def test_list_events_expands_daily_recurrence_with_count_limit(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+
+    # Starts Wed 2026-07-01, daily, 3 occurrences: Jul 1, 2, 3.
+    await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(title="Standup", recurrence={"freq": "DAILY", "count": 3}),
+    )
+
+    response = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-06-01T00:00:00+00:00", "end": "2026-08-01T00:00:00+00:00"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    starts = sorted(datetime.fromisoformat(e["start_at"]) for e in body)
+    assert len(body) == 3
+    assert starts == [
+        datetime.fromisoformat("2026-07-01T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-02T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-03T09:00:00+00:00"),
+    ]
+    assert all(e["recurrence"]["freq"] == "DAILY" for e in body)
+
+
+async def test_list_events_only_includes_occurrences_inside_window(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+
+    await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(title="Standup", recurrence={"freq": "DAILY", "count": 10}),
+    )
+
+    response = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-07-02T00:00:00+00:00", "end": "2026-07-04T00:00:00+00:00"},
+    )
+
+    assert response.status_code == 200
+    starts = sorted(datetime.fromisoformat(e["start_at"]) for e in response.json())
+    assert starts == [
+        datetime.fromisoformat("2026-07-02T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-03T09:00:00+00:00"),
+    ]
+
+
+async def test_list_events_expands_weekly_recurrence_on_specific_days(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+
+    # 2026-07-01 is a Wednesday; ask for Mon/Wed/Fri (0, 2, 4) each week.
+    await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(
+            title="Gym",
+            recurrence={"freq": "WEEKLY", "by_weekday": [0, 2, 4], "until": "2026-07-14T00:00:00+00:00"},
+        ),
+    )
+
+    response = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-06-01T00:00:00+00:00", "end": "2026-08-01T00:00:00+00:00"},
+    )
+
+    assert response.status_code == 200
+    starts = sorted(datetime.fromisoformat(e["start_at"]) for e in response.json())
+    assert starts == [
+        datetime.fromisoformat(d)
+        for d in [
+            "2026-07-01T09:00:00+00:00",
+            "2026-07-03T09:00:00+00:00",
+            "2026-07-06T09:00:00+00:00",
+            "2026-07-08T09:00:00+00:00",
+            "2026-07-10T09:00:00+00:00",
+            "2026-07-13T09:00:00+00:00",
+        ]
+    ]
+
+
+async def test_delete_recurring_event_removes_whole_series(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "count": 5}),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.delete(f"/api/events/{event_id}", headers=_auth_header(token))
+    assert response.status_code == 204
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-06-01T00:00:00+00:00", "end": "2026-08-01T00:00:00+00:00"},
+    )
+    assert listed.json() == []
