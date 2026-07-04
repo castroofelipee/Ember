@@ -8,6 +8,7 @@ defines the client seam and how to obtain a configured instance.
 from ember.config import env, mail_enabled
 from ember.mail.client import (
     MailAccount,
+    MailAccountAlreadyExistsError,
     MailAuthenticationError,
     MailClient,
     MailClientError,
@@ -18,6 +19,7 @@ from ember.mail.client import (
 
 __all__ = [
     "MailAccount",
+    "MailAccountAlreadyExistsError",
     "MailAuthenticationError",
     "MailClient",
     "MailClientError",

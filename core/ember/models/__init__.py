@@ -2,6 +2,8 @@ from ember.models.calendar import Calendar
 from ember.models.credential import Credential
 from ember.models.event import Event, EventAttendee
 from ember.models.invite import Invite
+from ember.models.mail_account import MailAccount, MailAccountStatus, MailProvider
+from ember.models.mail_domain import MailDomain, MailDomainStatus
 from ember.models.refresh_token import RefreshToken
 from ember.models.session import Session
 from ember.models.user import User
@@ -15,6 +17,11 @@ __all__ = [
     "Event",
     "EventAttendee",
     "Invite",
+    "MailAccount",
+    "MailAccountStatus",
+    "MailDomain",
+    "MailDomainStatus",
+    "MailProvider",
     "RefreshToken",
     "Session",
     "User",

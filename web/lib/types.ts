@@ -55,6 +55,31 @@ export const EVENT_COLORS = [
   { name: "Graphite", value: "#4b5563" },
 ] as const;
 
+export type MailDomainStatus = "pending" | "active" | "disabled";
+
+export type MailDomain = {
+  id: string;
+  workspace_id: string;
+  domain: string;
+  status: MailDomainStatus;
+  created_at: string;
+};
+
+export type MailAccountStatus = "active" | "suspended" | "disabled";
+
+export type MailAccount = {
+  id: string;
+  workspace_id: string;
+  domain_id: string;
+  user_id: string | null;
+  provider: "stalwart";
+  provider_account_id: string;
+  email: string;
+  display_name: string | null;
+  status: MailAccountStatus;
+  created_at: string;
+};
+
 export type TimeFormat = "12h" | "24h";
 
 export type Preferences = {

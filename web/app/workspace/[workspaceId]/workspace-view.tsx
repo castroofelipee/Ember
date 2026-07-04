@@ -178,6 +178,7 @@ export function WorkspaceView() {
   return (
     <div className="workspace-layout">
       <Sidebar
+        workspaceId={workspaceId}
         calendars={calendars}
         selectedDate={focusDate}
         onSelectDay={(date) => {

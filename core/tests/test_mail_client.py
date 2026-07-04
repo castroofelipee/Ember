@@ -5,11 +5,14 @@ contract, the factory, and `health_check` against a mocked HTTP transport — no
 real Stalwart server, DB, or network is involved.
 """
 
+import json
+
 import httpx
 import pytest
 
 from ember.config import env
 from ember.mail import (
+    MailAccountAlreadyExistsError,
     MailAuthenticationError,
     MailClient,
     MailClientError,
@@ -46,15 +49,11 @@ def test_stalwart_normalizes_base_url() -> None:
     assert client.base_url == "https://mail.example.com"
 
 
-async def test_stalwart_provisioning_not_implemented_yet() -> None:
+async def test_stalwart_password_rotation_not_implemented_yet() -> None:
     client = StalwartMailClient(base_url="https://mail.example.com", admin_token="token")
 
     with pytest.raises(NotImplementedError):
-        await client.create_account("ada@example.com", "pw")
-    with pytest.raises(NotImplementedError):
         await client.set_password("account-id", "pw")
-    with pytest.raises(NotImplementedError):
-        await client.delete_account("account-id")
 
 
 def test_get_mail_client_returns_none_when_disabled() -> None:
@@ -137,3 +136,258 @@ async def test_health_check_timeout_raises_timeout() -> None:
 
     with pytest.raises(MailTimeoutError):
         await _client_with(handler).health_check()
+
+
+def _jmap_response(method_responses: list) -> httpx.Response:
+    return httpx.Response(200, json={"methodResponses": method_responses})
+
+
+def _created_response(account_id: int = 42, email: str = "ada@example.com") -> httpx.Response:
+    return _jmap_response(
+        [
+            [
+                "x:Account/set",
+                {"created": {"new1": {"id": account_id, "emailAddress": email}}},
+                "c1",
+            ]
+        ]
+    )
+
+
+async def test_create_account_success_returns_dto_and_sends_bearer() -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["authorization"] = request.headers.get("Authorization")
+        seen["content_type"] = request.headers.get("Content-Type")
+        seen["body"] = json.loads(request.content)
+        return _created_response(account_id=42, email="ada@example.com")
+
+    account = await _client_with(handler).create_account("ada@example.com", "hunter2")
+
+    assert account.id == "42"
+    assert account.address == "ada@example.com"
+    assert seen["path"] == "/api"
+    assert seen["authorization"] == "Bearer secret-token"
+    assert seen["content_type"] == "application/json"
+
+    body = seen["body"]
+    assert body["using"] == ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"]
+    [[method_name, method_args, tag]] = body["methodCalls"]
+    assert method_name == "x:Account/set"
+    assert tag == "c1"
+    fields = method_args["create"]["new1"]
+    assert fields["@type"] == "User"
+    assert fields["name"] == "ada"
+    assert fields["domainId"] == "example.com"
+    assert fields["credentials"] == [{"@type": "Password", "secret": "hunter2"}]
+    assert fields["roles"] == {"@type": "User"}
+    assert fields["permissions"] == {"@type": "Inherit"}
+    assert fields["encryptionAtRest"] == {"@type": "Disabled"}
+    assert fields["quotas"] == {}
+
+
+async def test_create_account_sends_quota_when_given() -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return _created_response()
+
+    await _client_with(handler).create_account("ada@example.com", "pw", quota_bytes=1024)
+
+    fields = seen["body"]["methodCalls"][0][1]["create"]["new1"]
+    assert fields["quotas"] == {"maxDiskQuota": 1024}
+
+
+async def test_create_account_rejects_address_without_domain() -> None:
+    client = StalwartMailClient(base_url="https://mail.example.com", admin_token="token")
+    with pytest.raises(ValueError):
+        await client.create_account("not-an-email", "pw")
+
+
+async def test_create_account_already_exists_raises_specific_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [
+                [
+                    "x:Account/set",
+                    {
+                        "notCreated": {
+                            "new1": {
+                                "type": "alreadyExists",
+                                "description": "an account with this name already exists",
+                            }
+                        }
+                    },
+                    "c1",
+                ]
+            ]
+        )
+
+    with pytest.raises(MailAccountAlreadyExistsError):
+        await _client_with(handler).create_account("ada@example.com", "pw")
+
+
+async def test_create_account_other_not_created_raises_generic_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [
+                [
+                    "x:Account/set",
+                    {
+                        "notCreated": {
+                            "new1": {
+                                "type": "invalidProperties",
+                                "description": "domainId is not a valid domain",
+                            }
+                        }
+                    },
+                    "c1",
+                ]
+            ]
+        )
+
+    with pytest.raises(MailClientError) as exc_info:
+        await _client_with(handler).create_account("ada@example.com", "pw")
+    assert not isinstance(exc_info.value, MailAccountAlreadyExistsError)
+    assert "invalidProperties" in str(exc_info.value)
+
+
+async def test_create_account_top_level_jmap_error_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [["error", {"type": "unknownMethod", "description": "no such method"}, "c1"]]
+        )
+
+    with pytest.raises(MailClientError):
+        await _client_with(handler).create_account("ada@example.com", "pw")
+
+
+async def test_create_account_empty_method_responses_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response([])
+
+    with pytest.raises(MailClientError):
+        await _client_with(handler).create_account("ada@example.com", "pw")
+
+
+async def test_create_account_401_raises_authentication() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401)
+
+    with pytest.raises(MailAuthenticationError):
+        await _client_with(handler).create_account("ada@example.com", "pw")
+
+
+async def test_create_account_unexpected_status_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    with pytest.raises(MailClientError) as exc_info:
+        await _client_with(handler).create_account("ada@example.com", "pw")
+    assert not isinstance(exc_info.value, (MailAuthenticationError, MailConnectionError))
+
+
+async def test_create_account_connection_error_raises_connection() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    with pytest.raises(MailConnectionError):
+        await _client_with(handler).create_account("ada@example.com", "pw")
+
+
+async def test_create_account_timeout_raises_timeout() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    with pytest.raises(MailTimeoutError):
+        await _client_with(handler).create_account("ada@example.com", "pw")
+
+
+async def test_delete_account_success_sends_destroy() -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return _jmap_response([["x:Account/set", {"destroyed": ["42"]}, "c1"]])
+
+    await _client_with(handler).delete_account("42")
+
+    assert seen["path"] == "/api"
+    [[method_name, method_args, _tag]] = seen["body"]["methodCalls"]
+    assert method_name == "x:Account/set"
+    assert method_args == {"destroy": ["42"]}
+
+
+async def test_delete_account_not_destroyed_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [
+                [
+                    "x:Account/set",
+                    {
+                        "notDestroyed": {
+                            "42": {"type": "notFound", "description": "no such account"}
+                        }
+                    },
+                    "c1",
+                ]
+            ]
+        )
+
+    with pytest.raises(MailClientError) as exc_info:
+        await _client_with(handler).delete_account("42")
+    assert "notFound" in str(exc_info.value)
+
+
+async def test_delete_account_top_level_jmap_error_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [["error", {"type": "unknownMethod", "description": "no such method"}, "c1"]]
+        )
+
+    with pytest.raises(MailClientError):
+        await _client_with(handler).delete_account("42")
+
+
+async def test_delete_account_empty_method_responses_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response([])
+
+    with pytest.raises(MailClientError):
+        await _client_with(handler).delete_account("42")
+
+
+async def test_delete_account_missing_destroyed_and_not_destroyed_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response([["x:Account/set", {}, "c1"]])
+
+    with pytest.raises(MailClientError):
+        await _client_with(handler).delete_account("42")
+
+
+async def test_delete_account_401_raises_authentication() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401)
+
+    with pytest.raises(MailAuthenticationError):
+        await _client_with(handler).delete_account("42")
+
+
+async def test_delete_account_connection_error_raises_connection() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    with pytest.raises(MailConnectionError):
+        await _client_with(handler).delete_account("42")
+
+
+async def test_delete_account_timeout_raises_timeout() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out", request=request)
+
+    with pytest.raises(MailTimeoutError):
+        await _client_with(handler).delete_account("42")

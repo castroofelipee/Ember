@@ -45,3 +45,11 @@ def generate_invite_code() -> str:
 
 def hash_invite_code(raw_code: str) -> str:
     return hash_token(raw_code)
+
+
+def generate_mail_account_password() -> str:
+    """A throwaway credential handed to the mail server on account creation.
+    Ember never stores mail-server passwords (docs/rfc/mail-module.md §5), so
+    this is generated fresh and discarded immediately after the provisioning
+    call — nothing persists it."""
+    return secrets.token_urlsafe(32)

@@ -807,6 +807,172 @@
   flex-shrink: 0;
 }
 
+/* Mail domains admin (/workspace/[id]/mail/domains): list of rows, each
+ * either showing the domain + status badge or, in edit mode, an inline form.
+ * Same fixed dark theme as the rest of the app. */
+
+.mail-domain-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.mail-domain-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  background: #1e1e1e;
+  border: 1px solid #2e2e2e;
+}
+
+.mail-domain-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.mail-domain-name {
+  color: #f5f5f5;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-domain-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: #2a2a2a;
+  color: #a1a1a1;
+}
+
+.mail-domain-status--active {
+  background: rgba(22, 163, 74, 0.18);
+  color: #86efac;
+}
+
+.mail-domain-status--pending {
+  background: rgba(202, 138, 4, 0.18);
+  color: #fde68a;
+}
+
+.mail-domain-status--disabled {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+}
+
+.mail-domain-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.mail-domain-edit-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 12rem;
+}
+
+.mail-domain-edit-fields .form-field {
+  flex: 1;
+  min-width: 10rem;
+}
+
+.mail-subnav {
+  margin-bottom: 1.5rem;
+}
+
+.mail-accounts-toolbar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.mail-accounts-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #2e2e2e;
+  border-radius: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.mail-accounts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.mail-accounts-table th {
+  text-align: left;
+  padding: 0.65rem 0.85rem;
+  background: #1a1a1a;
+  color: #9a9a9a;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid #2e2e2e;
+  white-space: nowrap;
+}
+
+.mail-accounts-table td {
+  padding: 0.65rem 0.85rem;
+  color: #f5f5f5;
+  border-bottom: 1px solid #232323;
+  vertical-align: middle;
+}
+
+.mail-accounts-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.mail-accounts-table tbody tr:hover {
+  background: #1a1a1a;
+}
+
+.mail-account-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: #2a2a2a;
+  color: #a1a1a1;
+}
+
+.mail-account-status--active {
+  background: rgba(22, 163, 74, 0.18);
+  color: #86efac;
+}
+
+.mail-account-status--suspended {
+  background: rgba(202, 138, 4, 0.18);
+  color: #fde68a;
+}
+
+.mail-account-status--disabled {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;

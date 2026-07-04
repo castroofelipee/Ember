@@ -3,20 +3,27 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, LayoutGrid, Menu, Plus, Search, Settings } from "lucide-react";
+import { Check, ChevronDown, LayoutGrid, Mail, Menu, Plus, Search, Settings } from "lucide-react";
 
 import type { Calendar } from "@/lib/types";
 
 import { MiniCalendar } from "./mini-calendar";
 
 type SidebarProps = {
+  workspaceId: string;
   calendars: Calendar[];
   selectedDate: Date;
   onSelectDay: (date: Date) => void;
   onCreateEvent: () => void;
 };
 
-export function Sidebar({ calendars, selectedDate, onSelectDay, onCreateEvent }: SidebarProps) {
+export function Sidebar({
+  workspaceId,
+  calendars,
+  selectedDate,
+  onSelectDay,
+  onCreateEvent,
+}: SidebarProps) {
   const router = useRouter();
   const [open, setOpen] = useState(true);
 
@@ -75,6 +82,15 @@ export function Sidebar({ calendars, selectedDate, onSelectDay, onCreateEvent }:
       >
         <LayoutGrid size={18} />
         {open && <span>Workspaces</span>}
+      </button>
+
+      <button
+        type="button"
+        className="sidebar-settings-button"
+        onClick={() => router.push(`/workspace/${workspaceId}/mail/domains`)}
+      >
+        <Mail size={18} />
+        {open && <span>Mail</span>}
       </button>
 
       <button
