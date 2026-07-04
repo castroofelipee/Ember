@@ -2,11 +2,12 @@ import asyncio
 from logging.config import fileConfig
 
 from sqlalchemy import Connection
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 from ember import models  # noqa: F401  (registers all tables on Base.metadata)
-from ember.config import database_url
-from ember.db import Base, engine
+from ember.config import database_direct_url
+from ember.db import Base
 
 config = context.config
 
@@ -14,15 +15,16 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Built from validated env vars (venvalid), never read from alembic.ini
-# (docs/authentication.md: no secrets in config files).
-config.set_main_option("sqlalchemy.url", database_url())
+# (docs/authentication.md: no secrets in config files). Migrations use the
+# direct (non-pooled) URL — poolers reject the DDL/lock traffic Alembic needs.
+config.set_main_option("sqlalchemy.url", database_direct_url())
 
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=database_url(),
+        url=database_direct_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -38,14 +40,14 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """Reuse the app's own async engine (ember.db.engine) instead of building
-    a second one from the .ini file, so migrations and app runtime share one
-    source of truth for the connection.
+    """Connect over the direct (non-pooled) URL for the duration of the
+    migration run, then dispose of the engine.
     """
-    async with engine.connect() as connection:
+    connectable = create_async_engine(database_direct_url())
+    async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
 
-    await engine.dispose()
+    await connectable.dispose()
 
 
 def run_migrations_online() -> None:
