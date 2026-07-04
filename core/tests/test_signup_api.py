@@ -2,7 +2,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ember.models import Credential, User
+from ember.models import Credential, Session, User
 
 REGISTER_URL = "/api/auth/signup"
 
@@ -15,6 +15,16 @@ def _payload(**overrides: object) -> dict:
     }
     payload.update(overrides)
     return payload
+
+
+async def _invite_code(client: AsyncClient, access_token: str) -> str:
+    """Any signup after the first one needs a real invite — bootstrap only
+    exempts the very first account (docs/authentication.md deviation note
+    on ember.services.auth.signup)."""
+    response = await client.post(
+        "/api/invites", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    return response.json()["code"]
 
 
 async def test_register_happy_path_returns_201(client: AsyncClient) -> None:
@@ -48,15 +58,23 @@ async def test_register_persists_hashed_password(client: AsyncClient, db_session
 
 
 async def test_register_duplicate_email_returns_409(client: AsyncClient) -> None:
-    await client.post(REGISTER_URL, json=_payload())
-    response = await client.post(REGISTER_URL, json=_payload(display_name="Someone Else"))
+    first = await client.post(REGISTER_URL, json=_payload())
+    invite_code = await _invite_code(client, first.json()["access_token"])
+
+    response = await client.post(
+        REGISTER_URL, json=_payload(display_name="Someone Else", invite_code=invite_code)
+    )
 
     assert response.status_code == 409
 
 
 async def test_register_duplicate_email_case_insensitive_returns_409(client: AsyncClient) -> None:
-    await client.post(REGISTER_URL, json=_payload(email="ada@example.com"))
-    response = await client.post(REGISTER_URL, json=_payload(email="ADA@EXAMPLE.COM"))
+    first = await client.post(REGISTER_URL, json=_payload(email="ada@example.com"))
+    invite_code = await _invite_code(client, first.json()["access_token"])
+
+    response = await client.post(
+        REGISTER_URL, json=_payload(email="ADA@EXAMPLE.COM", invite_code=invite_code)
+    )
 
     assert response.status_code == 409
 
@@ -64,8 +82,12 @@ async def test_register_duplicate_email_case_insensitive_returns_409(client: Asy
 async def test_register_only_creates_one_user_on_duplicate(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    await client.post(REGISTER_URL, json=_payload())
-    await client.post(REGISTER_URL, json=_payload(display_name="Someone Else"))
+    first = await client.post(REGISTER_URL, json=_payload())
+    invite_code = await _invite_code(client, first.json()["access_token"])
+
+    await client.post(
+        REGISTER_URL, json=_payload(display_name="Someone Else", invite_code=invite_code)
+    )
 
     users = (
         await db_session.execute(select(User).where(User.email == "ada@example.com"))
@@ -102,3 +124,31 @@ async def test_register_normalizes_email_before_storing(client: AsyncClient) -> 
 
     assert response.status_code == 201
     assert response.json()["email"] == "ada@example.com"
+
+
+async def test_register_auto_logs_in_returns_access_token(client: AsyncClient) -> None:
+    response = await client.post(REGISTER_URL, json=_payload())
+
+    body = response.json()
+    assert body["token_type"] == "bearer"
+    assert body["access_token"]
+
+
+async def test_register_auto_login_sets_refresh_cookie(client: AsyncClient) -> None:
+    response = await client.post(REGISTER_URL, json=_payload())
+
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "refresh_token=" in set_cookie
+    assert "httponly" in set_cookie.lower()
+
+
+async def test_register_auto_login_opens_a_session(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    response = await client.post(REGISTER_URL, json=_payload())
+    user_id = response.json()["id"]
+
+    session_row = (
+        await db_session.execute(select(Session).where(Session.user_id == user_id))
+    ).scalar_one()
+    assert session_row.revoked_at is None

@@ -1,16 +1,18 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ember.config import env
 from ember.jwt import create_access_token
-from ember.models import Credential, RefreshToken, Session, User, UserPreferences
+from ember.models import Credential, Invite, RefreshToken, Session, User, UserPreferences
 from ember.schemas.auth import LoginRequest, SignupRequest
 from ember.security import (
     generate_refresh_token,
+    hash_invite_code,
     hash_password,
     hash_refresh_token,
     verify_password,
@@ -32,42 +34,44 @@ class InvalidRefreshTokenError(Exception):
     (docs/authentication.md §1.5). Deliberately generic; the caller never learns which."""
 
 
-async def signup(session: AsyncSession, data: SignupRequest) -> User:
-    user = User(email=data.email, display_name=data.display_name)
-    user.credential = Credential(password_hash=hash_password(data.password))
-    user.preferences = UserPreferences()
+class InvalidInviteError(Exception):
+    """Raised when the signup invite code is missing, unknown, expired, or already used.
 
-    session.add(user)
-    try:
-        await session.flush()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise EmailAlreadyRegisteredError(data.email) from exc
-
-    await session.refresh(user)
-    return user
+    Registration is closed to the internet by default — this is the gate."""
 
 
-async def login(
+async def _consume_invite(session: AsyncSession, raw_code: str) -> uuid.UUID:
+    """Atomically claims an invite: a plain SELECT-then-UPDATE would leave a race
+    window where two concurrent signups could both see the same unused invite.
+    UPDATE ... WHERE used_at IS NULL ... RETURNING closes that in one statement.
+    """
+    now = datetime.now(timezone.utc)
+    result = await session.execute(
+        update(Invite)
+        .where(
+            Invite.code_hash == hash_invite_code(raw_code),
+            Invite.used_at.is_(None),
+            Invite.expires_at > now,
+        )
+        .values(used_at=now)
+        .returning(Invite.id)
+    )
+    invite_id = result.scalar_one_or_none()
+    if invite_id is None:
+        raise InvalidInviteError()
+    return invite_id
+
+
+async def _open_session_and_issue_tokens(
     session: AsyncSession,
-    data: LoginRequest,
+    user: User,
     *,
     user_agent: str | None,
     ip_address: str | None,
 ) -> tuple[str, str]:
-    user = (
-        await session.execute(
-            select(User).where(User.email == data.email).options(selectinload(User.credential))
-        )
-    ).scalar_one_or_none()
-
-    if user is None or user.credential is None:
-        verify_password_timing_safe_dummy(data.password)
-        raise InvalidCredentialsError()
-
-    if not verify_password(user.credential.password_hash, data.password):
-        raise InvalidCredentialsError()
-
+    """Shared by login and signup (signup auto-logs-in — see docs/authentication.md
+    deviation note: no email verification exists in this codebase, so there is no
+    "unverified" state to hold the account in before granting access)."""
     now = datetime.now(timezone.utc)
     login_session = Session(
         user_id=user.id,
@@ -90,6 +94,82 @@ async def login(
 
     access_token = create_access_token(user_id=user.id, session_id=login_session.id)
     return access_token, raw_refresh_token
+
+
+async def signup(
+    session: AsyncSession,
+    data: SignupRequest,
+    *,
+    user_agent: str | None = None,
+    ip_address: str | None = None,
+) -> tuple[User, str, str]:
+    """Creates the account and immediately opens a session (see
+    `_open_session_and_issue_tokens`). Returns (user, access_token, raw_refresh_token).
+
+    Requires a valid invite — registration is closed to the internet by
+    default. Exception: while the users table is empty, signup is allowed
+    without one, purely to bootstrap the very first account (nobody exists
+    yet to have issued an invite). That window closes for good the moment
+    the first account is created.
+
+    Claiming the invite and creating the user happen in the same
+    transaction: if the email turns out to be a duplicate, the IntegrityError
+    rollback below undoes the invite claim too, so a failed signup never
+    burns an invite.
+    """
+    is_first_user = (await session.execute(select(func.count()).select_from(User))).scalar_one() == 0
+
+    invite_id = None
+    if not is_first_user:
+        if not data.invite_code:
+            raise InvalidInviteError()
+        invite_id = await _consume_invite(session, data.invite_code)
+
+    user = User(email=data.email, display_name=data.display_name)
+    user.credential = Credential(password_hash=hash_password(data.password))
+    user.preferences = UserPreferences()
+
+    session.add(user)
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise EmailAlreadyRegisteredError(data.email) from exc
+
+    if invite_id is not None:
+        await session.execute(
+            update(Invite).where(Invite.id == invite_id).values(used_by_user_id=user.id)
+        )
+    await session.refresh(user)
+    access_token, raw_refresh_token = await _open_session_and_issue_tokens(
+        session, user, user_agent=user_agent, ip_address=ip_address
+    )
+    return user, access_token, raw_refresh_token
+
+
+async def login(
+    session: AsyncSession,
+    data: LoginRequest,
+    *,
+    user_agent: str | None,
+    ip_address: str | None,
+) -> tuple[str, str]:
+    user = (
+        await session.execute(
+            select(User).where(User.email == data.email).options(selectinload(User.credential))
+        )
+    ).scalar_one_or_none()
+
+    if user is None or user.credential is None:
+        verify_password_timing_safe_dummy(data.password)
+        raise InvalidCredentialsError()
+
+    if not verify_password(user.credential.password_hash, data.password):
+        raise InvalidCredentialsError()
+
+    return await _open_session_and_issue_tokens(
+        session, user, user_agent=user_agent, ip_address=ip_address
+    )
 
 
 async def refresh(session: AsyncSession, raw_token: str) -> tuple[str, str]:

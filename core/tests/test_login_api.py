@@ -104,10 +104,10 @@ async def test_login_email_is_case_insensitive(client: AsyncClient) -> None:
 async def test_repeated_logins_create_separate_sessions(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    await client.post(SIGNUP_URL, json=_signup_payload())
+    await client.post(SIGNUP_URL, json=_signup_payload())  # signup itself opens one session
 
     await client.post(LOGIN_URL, json=_login_payload())
     await client.post(LOGIN_URL, json=_login_payload())
 
     sessions = (await db_session.execute(select(Session))).scalars().all()
-    assert len(sessions) == 2
+    assert len(sessions) == 3

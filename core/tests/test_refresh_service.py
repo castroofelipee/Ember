@@ -10,6 +10,17 @@ from ember.security import hash_refresh_token
 from ember.services.auth import InvalidRefreshTokenError, login, refresh, signup
 
 
+async def _session_for_token(db_session: AsyncSession, raw_token: str) -> Session:
+    token = (
+        await db_session.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(raw_token))
+        )
+    ).scalar_one()
+    return (
+        await db_session.execute(select(Session).where(Session.id == token.session_id))
+    ).scalar_one()
+
+
 async def _create_user_and_login(db_session: AsyncSession) -> tuple[str, str]:
     await signup(
         db_session,
@@ -79,7 +90,7 @@ async def test_refresh_new_token_chains_via_replaces_id(db_session: AsyncSession
 async def test_refresh_updates_session_last_seen_at(db_session: AsyncSession) -> None:
     _, raw_refresh_token = await _create_user_and_login(db_session)
 
-    session_before = (await db_session.execute(select(Session))).scalar_one()
+    session_before = await _session_for_token(db_session, raw_refresh_token)
     original_last_seen_at = session_before.last_seen_at
 
     await refresh(db_session, raw_refresh_token)
@@ -101,7 +112,7 @@ async def test_refresh_reused_token_raises_and_revokes_session(db_session: Async
     with pytest.raises(InvalidRefreshTokenError):
         await refresh(db_session, raw_refresh_token)  # reuse: theft signal
 
-    session_row = (await db_session.execute(select(Session))).scalar_one()
+    session_row = await _session_for_token(db_session, raw_refresh_token)
     assert session_row.revoked_at is not None
 
 
@@ -142,7 +153,7 @@ async def test_refresh_access_token_carries_correct_session(db_session: AsyncSes
     from ember.jwt import ALGORITHM
 
     _, raw_refresh_token = await _create_user_and_login(db_session)
-    session_row = (await db_session.execute(select(Session))).scalar_one()
+    session_row = await _session_for_token(db_session, raw_refresh_token)
 
     new_access_token, _ = await refresh(db_session, raw_refresh_token)
     payload = jwt.decode(new_access_token, env["JWT_SECRET_KEY"], algorithms=[ALGORITHM])

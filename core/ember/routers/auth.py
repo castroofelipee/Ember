@@ -7,6 +7,7 @@ from ember.schemas.auth import LoginRequest, LoginResponse, SignupRequest, Signu
 from ember.services.auth import (
     EmailAlreadyRegisteredError,
     InvalidCredentialsError,
+    InvalidInviteError,
     InvalidRefreshTokenError,
     login,
     logout,
@@ -36,15 +37,38 @@ def _set_refresh_cookie(response: Response, raw_token: str) -> None:
 
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED)
-async def register(data: SignupRequest, db: AsyncSession = Depends(get_db)) -> SignupResponse:
+async def register(
+    data: SignupRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> SignupResponse:
     try:
-        user = await signup(db, data)
+        user, access_token, refresh_token = await signup(
+            db,
+            data,
+            user_agent=request.headers.get("user-agent"),
+            ip_address=request.client.host if request.client else None,
+        )
     except EmailAlreadyRegisteredError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists.",
         ) from exc
-    return SignupResponse.model_validate(user)
+    except InvalidInviteError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or expired invite code.",
+        ) from exc
+
+    _set_refresh_cookie(response, refresh_token)
+    return SignupResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        created_at=user.created_at,
+        access_token=access_token,
+    )
 
 
 @router.post("/login", status_code=status.HTTP_200_OK)

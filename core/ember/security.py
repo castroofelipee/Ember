@@ -27,9 +27,21 @@ def verify_password_timing_safe_dummy(password: str) -> None:
     verify_password(_DUMMY_PASSWORD_HASH, password)
 
 
+def hash_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
 def generate_refresh_token() -> str:
     return secrets.token_urlsafe(32)
 
 
 def hash_refresh_token(raw_token: str) -> str:
-    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    return hash_token(raw_token)
+
+
+def generate_invite_code() -> str:
+    return secrets.token_urlsafe(16)
+
+
+def hash_invite_code(raw_code: str) -> str:
+    return hash_token(raw_code)

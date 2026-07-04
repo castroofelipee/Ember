@@ -100,9 +100,9 @@ async def test_refresh_reuse_revokes_session_so_new_token_also_fails(
 async def test_refresh_updates_only_one_session_row(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    await _signup_and_login(client)
+    await _signup_and_login(client)  # signup's own session + this login's session
 
     await client.post(REFRESH_URL)
 
     sessions = (await db_session.execute(select(Session))).scalars().all()
-    assert len(sessions) == 1
+    assert len(sessions) == 2

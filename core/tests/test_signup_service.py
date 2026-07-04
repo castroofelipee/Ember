@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +8,7 @@ from ember.models import Credential, User, UserPreferences
 from ember.schemas.auth import SignupRequest
 from ember.security import verify_password
 from ember.services.auth import EmailAlreadyRegisteredError, signup
+from ember.services.invites import create_invite
 
 
 def _signup_data(**overrides: object) -> SignupRequest:
@@ -18,8 +21,15 @@ def _signup_data(**overrides: object) -> SignupRequest:
     return SignupRequest(**data)
 
 
+async def _invite_code_from(db_session: AsyncSession, inviter_id: uuid.UUID) -> str:
+    """Only the first signup in a test is exempt from needing an invite
+    (bootstrap) — any signup after that needs a real one."""
+    _, raw_code = await create_invite(db_session, inviter_id)
+    return raw_code
+
+
 async def test_signup_creates_user_credential_and_preferences(db_session: AsyncSession) -> None:
-    user = await signup(db_session, _signup_data())
+    user, _, _ = await signup(db_session, _signup_data())
 
     assert user.id is not None
     assert user.email == "ada@example.com"
@@ -37,7 +47,7 @@ async def test_signup_creates_user_credential_and_preferences(db_session: AsyncS
 
 
 async def test_signup_never_stores_plaintext_password(db_session: AsyncSession) -> None:
-    user = await signup(db_session, _signup_data())
+    user, _, _ = await signup(db_session, _signup_data())
 
     credential = (
         await db_session.execute(select(Credential).where(Credential.user_id == user.id))
@@ -46,17 +56,21 @@ async def test_signup_never_stores_plaintext_password(db_session: AsyncSession) 
 
 
 async def test_signup_duplicate_email_raises(db_session: AsyncSession) -> None:
-    await signup(db_session, _signup_data())
+    first, _, _ = await signup(db_session, _signup_data())
+    invite_code = await _invite_code_from(db_session, first.id)
 
     with pytest.raises(EmailAlreadyRegisteredError):
-        await signup(db_session, _signup_data(display_name="Someone Else"))
+        await signup(
+            db_session, _signup_data(display_name="Someone Else", invite_code=invite_code)
+        )
 
 
 async def test_signup_duplicate_email_case_insensitive_raises(db_session: AsyncSession) -> None:
-    await signup(db_session, _signup_data(email="ada@example.com"))
+    first, _, _ = await signup(db_session, _signup_data(email="ada@example.com"))
+    invite_code = await _invite_code_from(db_session, first.id)
 
     with pytest.raises(EmailAlreadyRegisteredError):
-        await signup(db_session, _signup_data(email="ADA@Example.com"))
+        await signup(db_session, _signup_data(email="ADA@Example.com", invite_code=invite_code))
 
 
 async def test_signup_normalizes_email_case_and_whitespace(db_session: AsyncSession) -> None:
@@ -65,27 +79,32 @@ async def test_signup_normalizes_email_case_and_whitespace(db_session: AsyncSess
         password="correct horse battery",
         display_name="Ada Lovelace",
     )
-    user = await signup(db_session, data)
+    user, _, _ = await signup(db_session, data)
 
     assert user.email == "ada@example.com"
 
 
 async def test_signup_after_failed_duplicate_session_still_usable(db_session: AsyncSession) -> None:
-    await signup(db_session, _signup_data())
+    first, _, _ = await signup(db_session, _signup_data())
+    invite_code_1 = await _invite_code_from(db_session, first.id)
+    invite_code_2 = await _invite_code_from(db_session, first.id)
 
     with pytest.raises(EmailAlreadyRegisteredError):
-        await signup(db_session, _signup_data(display_name="Dup"))
+        await signup(db_session, _signup_data(display_name="Dup", invite_code=invite_code_1))
 
-    other = await signup(db_session, _signup_data(email="grace@example.com"))
+    other, _, _ = await signup(
+        db_session, _signup_data(email="grace@example.com", invite_code=invite_code_2)
+    )
     assert other.email == "grace@example.com"
 
 
 async def test_signup_persists_only_one_user_when_duplicate(db_session: AsyncSession) -> None:
-    await signup(db_session, _signup_data())
+    first, _, _ = await signup(db_session, _signup_data())
+    invite_code = await _invite_code_from(db_session, first.id)
     await db_session.commit()
 
     with pytest.raises(EmailAlreadyRegisteredError):
-        await signup(db_session, _signup_data(display_name="Dup"))
+        await signup(db_session, _signup_data(display_name="Dup", invite_code=invite_code))
 
     count = (
         (await db_session.execute(select(User).where(User.email == "ada@example.com")))
