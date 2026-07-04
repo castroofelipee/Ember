@@ -65,7 +65,6 @@ services:
   # object created in Stalwart before accounts on it can be provisioned.
   stalwart:
     image: stalwartlabs/stalwart:v0.16
-    profiles: ["mail"]
     ports:
       - "8080:8080"
       - "25:25"
