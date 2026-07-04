@@ -578,6 +578,83 @@
   color: #ffffff;
 }
 
+.event-dialog-recur-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 0.6rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid #2e2e2e;
+  border-radius: 0.6rem;
+  background: #202020;
+}
+
+.event-dialog-recur-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #cfcfcf;
+}
+
+.event-dialog-recur-number {
+  width: 3.5rem;
+  text-align: center;
+}
+
+.event-dialog-weekday-toggle {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.event-dialog-weekday-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid #333333;
+  border-radius: 999px;
+  background: #232323;
+  color: #cfcfcf;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.event-dialog-weekday-button:hover {
+  border-color: #6b21a8;
+}
+
+.event-dialog-weekday-button--selected {
+  background: #6b21a8;
+  border-color: #6b21a8;
+  color: #ffffff;
+}
+
+.event-dialog-ends {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.event-dialog-ends-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #cfcfcf;
+  cursor: pointer;
+}
+
+.event-dialog-ends-option .event-dialog-input {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+}
+
 .event-dialog-actions {
   display: flex;
   align-items: center;

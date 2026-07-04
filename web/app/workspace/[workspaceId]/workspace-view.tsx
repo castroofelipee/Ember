@@ -59,6 +59,7 @@ export function WorkspaceView() {
       end: new Date(item.end_at),
       allDay: item.all_day,
       color: item.color ?? calendarColors.get(item.calendar_id) ?? DEFAULT_CALENDAR_COLOR,
+      recurrence: item.recurrence,
     }),
     // calendarColors/Names are derived from calendars each render; key on calendars.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -98,6 +99,9 @@ export function WorkspaceView() {
 
   const handleDelete = useCallback(async () => {
     if (!selected) return;
+    if (selected.event.recurrence && !window.confirm("Delete this event and all its repeats?")) {
+      return;
+    }
     setDeleting(true);
     try {
       const response = await fetch(`/api/events/${selected.event.id}`, {
