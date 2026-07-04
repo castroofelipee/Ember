@@ -1,3 +1,4 @@
+import { CalendarsSection } from "./calendars-section";
 import { InviteMembers } from "./invite-members";
 import { SettingsForm } from "./settings-form";
 
@@ -10,6 +11,8 @@ export default function SettingsPage() {
       </div>
       <div className="hub-content">
         <SettingsForm />
+        <div className="settings-divider" />
+        <CalendarsSection />
         <div className="settings-divider" />
         <InviteMembers />
       </div>
