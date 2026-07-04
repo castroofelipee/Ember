@@ -4,9 +4,10 @@
   <br>Ember
 </h1>
   <p align="center">
-    Private, self-hosted calendar for daily use. Alternative to Tradicional Calendars.
+    Private, self-hosted workspace for daily use. Alternative to Tradicional workspaces.
     <br />
     <a href="#about">About</a>
+    ·
     <a href="https://pinnlabs.online/sponsors">Sponsor</a>
   </p>
 </p>

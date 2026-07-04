@@ -15,6 +15,23 @@ services:
       - "9000"
     restart: unless-stopped
 
+  # Background-job worker. Same image and database as the api; the api's
+  # `alembic upgrade head` installs the Procrastinate schema, so the worker only
+  # runs. Scale with `--concurrency`, or run more replicas.
+  worker:
+    build:
+      context: ./core
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_DIRECT_URL: ${DATABASE_DIRECT_URL}
+      DATABASE_ECHO: "false"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+    command: ["procrastinate", "--app=ember.jobs.app.app", "worker"]
+    depends_on:
+      - api
+    restart: unless-stopped
+
   web:
     build:
       context: ./web
