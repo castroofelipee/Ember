@@ -1,17 +1,19 @@
 import type { NextConfig } from "next";
 
-// Production builds are exported as static assets (web/out) and served by
-// the FastAPI server, so one process ships the whole app. In dev, Next runs
-// its own server and proxies /api to the FastAPI dev server instead.
-const isProdBuild = process.env.NODE_ENV === "production";
+// The app is deployed as a Next.js server (standalone output) that proxies
+// /api/* to the FastAPI backend, so the browser only ever calls same-origin
+// relative paths. BACKEND_URL points at the backend: in dev the local FastAPI
+// server, in prod the internal `api` service (see docker-compose.yml). The
+// async rewrite is evaluated at server start, so the value is read at runtime.
+const backendUrl = process.env.BACKEND_URL ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
-  output: isProdBuild ? "export" : undefined,
+  output: "standalone",
   async rewrites() {
     return [
       {
         source: "/api/:path*",
-        destination: "http://127.0.0.1:8000/api/:path*",
+        destination: `${backendUrl}/api/:path*`,
       },
     ];
   },

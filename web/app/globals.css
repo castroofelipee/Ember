@@ -1,26 +1,1492 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+.auth-page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #121212;
+  padding: 2rem 1rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 24rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.auth-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #f5f5f5;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.auth-subtitle {
+  font-size: 0.95rem;
+  color: #a1a1a1;
+  margin: 0.5rem 0 2rem;
+}
+
+.auth-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  text-align: left;
+}
+
+.form-label {
+  font-size: 0.8rem;
+  color: #cfcfcf;
+}
+
+.form-input {
+  background: #1e1e1e;
+  border: 1px solid #333333;
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  color: #f5f5f5;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.form-input:focus {
+  border-color: #21103b;
+  box-shadow: 0 0 0 3px rgba(33, 16, 59, 0.5);
+}
+
+.form-error {
+  font-size: 0.8rem;
+  color: #ff6b6b;
+  margin: 0;
+}
+
+.form-error--summary {
+  text-align: center;
+}
+
+.auth-success {
+  color: #9ae6b4;
+  font-size: 0.95rem;
+}
+
+.button-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: #21103b;
+  color: #f5f5f5;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.button-primary:hover:not(:disabled) {
+  background: #2c1650;
+}
+
+.button-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/*
+ * Workspace hub (/calendars, /workspace): wider dashboard-style layout,
+ * distinct from the narrow centered .auth-page used by signup/login/
+ * onboarding forms. Same fixed dark theme throughout.
+ */
+
+.hub-page {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #121212;
+  padding: 3.5rem 1.5rem;
+  gap: 2.5rem;
+}
+
+.hub-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.hub-content {
+  width: 100%;
+  max-width: 30rem;
+}
+
+.hub-content--wide {
+  max-width: 48rem;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1rem;
+}
+
+.workspace-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.workspace-card:hover {
+  border-color: #21103b;
+  transform: translateY(-2px);
+}
+
+.workspace-card-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(33, 16, 59, 0.5);
+  color: #c9b8e8;
+}
+
+.workspace-role-badge {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a1a1a1;
+}
+
+.new-workspace-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px dashed #3a3a3a;
+  border-radius: 0.75rem;
+  color: #a1a1a1;
+  cursor: pointer;
+  min-height: 7rem;
+  background: transparent;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.new-workspace-card:hover {
+  border-color: #21103b;
+  color: #f5f5f5;
+}
+
+.tour-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: center;
+}
+
+.tour-step-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: #333333;
+  transition: all 0.15s ease;
+}
+
+.tour-step-dot--active {
+  background: #21103b;
+  width: 1.25rem;
+  border-radius: 999px;
+}
+
+.tour-step-dot--done {
+  background: #6b21a8;
+}
+
+.calendar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Settings page: sectioned preferences form. */
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  text-align: left;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.settings-section-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f5f5f5;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.settings-section-hint {
+  margin: -0.35rem 0 0;
+  font-size: 0.8rem;
+  color: #8a8a8a;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.settings-divider {
+  height: 1px;
+  margin: 2rem 0;
+  background: #2a2a2a;
+}
+
+.invite-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.invite-link-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.invite-link-row .event-dialog-input {
+  flex: 1;
+  font-size: 0.82rem;
+}
+
+.invite-create-button {
+  align-self: flex-start;
+}
+
+/* Event create dialog: centered modal with a frosted backdrop. */
+
+.event-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4rem 1rem;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.event-dialog {
+  width: 100%;
+  max-width: 30rem;
+  background: #1a1a1a;
+  border: 1px solid #2e2e2e;
+  border-radius: 0.9rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.event-dialog-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.event-dialog-heading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f5f5f5;
+}
+
+.event-dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #a1a1a1;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.event-dialog-close:hover {
+  background: #2a2a2a;
+  color: #f5f5f5;
+}
+
+.event-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.1rem;
+}
+
+.event-dialog-title-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid #2e2e2e;
+  padding: 0.4rem 0.1rem;
+  color: #f5f5f5;
+  font-size: 1.25rem;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.event-dialog-title-input::placeholder {
+  color: #6a6a6a;
+}
+
+.event-dialog-title-input:focus {
+  border-color: #6b21a8;
+}
+
+.event-dialog-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #cfcfcf;
+  cursor: pointer;
+}
+
+.event-dialog-times {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.event-dialog-dash {
+  color: #7a7a7a;
+}
+
+.event-dialog-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.event-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+}
+
+.event-dialog-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: #9a9a9a;
+}
+
+.event-dialog-input {
+  background: #232323;
+  border: 1px solid #333333;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  color: #f5f5f5;
+  font-size: 0.9rem;
+  outline: none;
+  color-scheme: dark;
+}
+
+.event-dialog-input:focus {
+  border-color: #6b21a8;
+}
+
+.event-dialog-textarea {
+  resize: vertical;
+  min-height: 3.5rem;
+  font-family: inherit;
+}
+
+.event-dialog-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.event-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  color: #ffffff;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.event-swatch:hover {
+  transform: scale(1.1);
+}
+
+.event-swatch--selected {
+  border-color: #f5f5f5;
+}
+
+.event-dialog-guest-entry {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.event-dialog-guest-entry .event-dialog-input {
+  flex: 1;
+}
+
+.event-dialog-add {
+  padding: 0 0.9rem;
+  border: 1px solid #333333;
+  border-radius: 0.5rem;
+  background: #262626;
+  color: #f5f5f5;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.event-dialog-add:hover {
+  background: #303030;
+}
+
+.event-dialog-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.event-guest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(33, 16, 59, 0.6);
+  border: 1px solid #3a2a55;
+  color: #e6ddf5;
+  font-size: 0.8rem;
+}
+
+.event-guest-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #b9a8d8;
+  cursor: pointer;
+  padding: 0;
+}
+
+.event-guest-chip button:hover {
+  color: #ffffff;
+}
+
+.event-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding-top: 0.25rem;
+}
+
+/* Event detail popover: anchored beside the clicked event, Google-style. */
+
+.event-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.event-detail {
+  position: fixed;
+  visibility: hidden;
+  width: 22rem;
+  max-width: calc(100vw - 1rem);
+  background: #1c1c1c;
+  border: 1px solid #313131;
+  border-radius: 0.85rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+.event-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.15rem;
+  padding: 0.5rem 0.5rem 0;
+}
+
+.event-detail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #a1a1a1;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.event-detail-icon:hover:not(:disabled) {
+  background: #2a2a2a;
+  color: #f5f5f5;
+}
+
+.event-detail-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.event-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 0.25rem 1.25rem 1.35rem;
+}
+
+.event-detail-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.event-detail-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-top: 0.4rem;
+  border-radius: 0.28rem;
+  flex-shrink: 0;
+}
+
+.event-detail-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.3;
+}
+
+.event-detail-time {
+  margin: 0.15rem 0 0;
+  font-size: 0.85rem;
+  color: #a1a1a1;
+}
+
+.event-detail-line {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 0.85rem;
+  color: #d0d0d0;
+}
+
+.event-detail-line--top {
+  align-items: flex-start;
+}
+
+.event-detail-line svg {
+  color: #8a8a8a;
+  flex-shrink: 0;
+}
+
+.event-detail-guests {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.event-detail-guests-count {
+  font-weight: 600;
+  color: #f5f5f5;
+}
+
+.event-detail-guest {
+  color: #b0b0b0;
+}
+
+.event-detail-description {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.calendar-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.5rem;
+  background: #1e1e1e;
+  border: 1px solid #2e2e2e;
+  color: #f5f5f5;
+  font-size: 0.9rem;
+}
+
+.calendar-chip-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  color: #a1a1a1;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+
+.link-button:hover {
+  color: #f5f5f5;
+}
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+/*
+ * Workspace shell: fixed sidebar rail + scrollable main area. Same fixed dark
+ * theme (#121212 / #21103b accent) as the rest of the app.
+ */
+
+.workspace-layout {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+  background: #121212;
+}
+
+.workspace-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3.5rem 1.5rem;
+  gap: 2.5rem;
+  overflow-y: auto;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 16rem;
+  flex-shrink: 0;
+  padding: 1rem;
+  background: #161616;
+  border-right: 1px solid #2a2a2a;
+  overflow-y: auto;
+  transition: width 0.15s ease;
+}
+
+.sidebar--collapsed {
+  width: 4.25rem;
+  align-items: center;
+}
+
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sidebar--collapsed .sidebar-top {
+  justify-content: center;
+}
+
+.sidebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #f5f5f5;
+  letter-spacing: -0.02em;
+}
+
+.sidebar-logo {
+  width: 2.5rem;
+  height: 2.5rem;
+  object-fit: contain;
+}
+
+.sidebar-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #cfcfcf;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.sidebar-icon-button:hover {
+  background: #262626;
+  color: #f5f5f5;
+}
+
+.sidebar-create-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.85rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: #21103b;
+  color: #f5f5f5;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.sidebar-create-button:hover {
+  background: #2c1650;
+}
+
+.sidebar-settings-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid #2e2e2e;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #cfcfcf;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.sidebar-settings-button:hover {
+  background: #262626;
+  color: #f5f5f5;
+}
+
+.mini-calendar {
+  background: #1e1e1e;
+  border: 1px solid #2e2e2e;
+  border-radius: 0.65rem;
+  padding: 0.75rem;
+}
+
+.mini-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.mini-calendar-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f5f5f5;
+  text-align: center;
+}
+
+.mini-calendar-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #9a9a9a;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.mini-calendar-nav:hover {
+  background: #262626;
+  color: #f5f5f5;
+}
+
+.mini-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.15rem;
+}
+
+.mini-calendar-weekday {
+  font-size: 0.65rem;
+  color: #7a7a7a;
+  text-align: center;
+  padding-bottom: 0.2rem;
+}
+
+.mini-calendar-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  font-size: 0.72rem;
+  color: #d0d0d0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+button.mini-calendar-day:hover {
+  background: #2a2a2a;
+  color: #f5f5f5;
+}
+
+.mini-calendar-day--empty {
+  visibility: hidden;
+}
+
+/* Today is ringed; the day focused in the main view is filled. */
+.mini-calendar-day--today {
+  box-shadow: inset 0 0 0 1px #6b21a8;
+  color: #f5f5f5;
+  font-weight: 600;
+}
+
+.mini-calendar-day--selected {
+  background: #21103b;
+  color: #f5f5f5;
+  font-weight: 600;
+}
+
+button.mini-calendar-day--selected:hover {
+  background: #2c1650;
+}
+
+/* Google-Calendar-style panel below the mini month view. */
+
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 0.5rem;
+  background: #1e1e1e;
+  border: 1px solid #2e2e2e;
+  color: #7a7a7a;
+}
+
+.sidebar-search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f5f5f5;
+  font-size: 0.85rem;
+}
+
+.sidebar-search-input::placeholder {
+  color: #7a7a7a;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.sidebar-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: #9a9a9a;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.sidebar-section-toggle:hover {
+  color: #f5f5f5;
+}
+
+.sidebar-chevron {
+  color: #6a6a6a;
+  transition: transform 0.15s ease;
+}
+
+.sidebar-chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+.sidebar-calendar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.sidebar-calendar-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: none;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: #d0d0d0;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.sidebar-calendar-item:hover {
+  background: #232323;
+}
+
+.sidebar-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border: 1.5px solid #4a4a4a;
+  border-radius: 0.28rem;
+  color: #ffffff;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.sidebar-calendar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-calendar-item[aria-checked="false"] .sidebar-calendar-name {
+  color: #8a8a8a;
+}
+
+.sidebar-calendar-empty {
+  padding: 0.45rem 0.5rem;
+  color: #7a7a7a;
+  font-size: 0.8rem;
+}
+
+/*
+ * Week view: Google-Calendar-style layout that fills the workspace main area.
+ * Sticky day header + all-day row above a scrollable 24-hour grid. Same fixed
+ * dark theme (#121212 surface, #21103b accent) as the rest of the app.
+ */
+
+.calendar-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #121212;
+  overflow: hidden;
+}
+
+.week-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.week-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.5rem;
+  gap: 1rem;
+}
+
+.week-title {
+  margin: 0;
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: #f5f5f5;
+  letter-spacing: -0.02em;
+}
+
+.week-title span {
+  font-weight: 400;
+  color: #a1a1a1;
+}
+
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.week-nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #cfcfcf;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.week-nav-button:hover {
+  background: #262626;
+  color: #f5f5f5;
+}
+
+.week-today-button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #2e2e2e;
+  border-radius: 999px;
+  background: transparent;
+  color: #f5f5f5;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.week-today-button:hover {
+  background: #262626;
+  border-color: #3a3a3a;
+}
+
+.week-view-toggle {
+  display: inline-flex;
+  padding: 0.15rem;
+  margin-right: 0.35rem;
+  border: 1px solid #2e2e2e;
+  border-radius: 999px;
+  background: #1a1a1a;
+}
+
+.week-view-toggle-button {
+  padding: 0.3rem 0.85rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #a1a1a1;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.week-view-toggle-button:hover {
+  color: #f5f5f5;
+}
+
+.week-view-toggle-button--active {
+  background: #21103b;
+  color: #f5f5f5;
+}
+
+/* Shared 7-column grid so the header, all-day row, and body stay aligned. */
+.week-columns {
+  display: grid;
+  grid-template-columns: 4rem repeat(7, minmax(0, 1fr));
+}
+
+.week-daybar {
+  border-top: 1px solid #2a2a2a;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.week-gutter-cell {
+  border-right: 1px solid #2a2a2a;
+}
+
+.week-dayhead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0;
+  border-right: 1px solid #2a2a2a;
+}
+
+.week-dayhead-name {
+  font-size: 0.8rem;
+  color: #a1a1a1;
+}
+
+.week-dayhead-date {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  height: 1.6rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  color: #f5f5f5;
+}
+
+.week-dayhead-date--today {
+  background: #ef4444;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.week-allday {
+  border-bottom: 1px solid #2a2a2a;
+  min-height: 2rem;
+}
+
+.week-allday-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.5rem;
+  font-size: 0.68rem;
+  color: #7a7a7a;
+}
+
+.week-allday-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.2rem 0.25rem;
+  border-right: 1px solid #2a2a2a;
+}
+
+.week-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.week-body {
+  position: relative;
+}
+
+.week-gutter {
+  border-right: 1px solid #2a2a2a;
+}
+
+.week-gutter-hour {
+  position: relative;
+}
+
+.week-gutter-time {
+  position: absolute;
+  top: -0.55rem;
+  right: 0.5rem;
+  font-size: 0.68rem;
+  color: #7a7a7a;
+  white-space: nowrap;
+}
+
+.week-col {
+  position: relative;
+  border-right: 1px solid #2a2a2a;
+}
+
+.week-hour {
+  border-bottom: 1px solid #232323;
+}
+
+/* Dim the hours outside the user's working range so the workday stands out. */
+.week-offhours {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.week-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px solid #ef4444;
+  z-index: 2;
+}
+
+.week-now-dot {
+  position: absolute;
+  left: -4px;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+}
+
+/* Frosted, translucent event blocks: the tinted fill plus a backdrop blur
+ * gives the clean, glassy look over the grid lines behind them. */
+.week-event {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  overflow: hidden;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.4rem;
+  border-left: 3px solid rgba(255, 255, 255, 0.35);
+  color: #eef2ff;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  cursor: pointer;
+  z-index: 1;
+  backdrop-filter: blur(7px) saturate(1.2);
+  -webkit-backdrop-filter: blur(7px) saturate(1.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: filter 0.12s ease;
+}
+
+.week-event:hover {
+  filter: brightness(1.12);
+}
+
+.week-event--allday {
+  position: static;
+  border-left: none;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.7rem;
+  box-shadow: none;
+}
+
+.week-event-title {
+  font-weight: 600;
+  color: #ffffff;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.week-event-time {
+  display: block;
+  opacity: 0.85;
+  font-size: 0.66rem;
+}
+
+.week-empty-hint {
+  margin: 0;
+  padding: 0.6rem 1.5rem;
+  border-top: 1px solid #2a2a2a;
+  font-size: 0.82rem;
+  color: #7a7a7a;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }
