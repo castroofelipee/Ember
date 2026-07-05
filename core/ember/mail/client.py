@@ -227,11 +227,8 @@ class StalwartMailClient(MailClient):
                     f"Mail server rejected {method_name}: {arguments.get('type')} "
                     f"({arguments.get('description', 'no description')})"
                 )
-            if name != method_name:
-                raise MailClientError(
-                    f"Mail server returned {name} for {method_name} tag {tag}"
-                )
-            return arguments
+            if name == method_name:
+                return arguments
         raise MailClientError(f"Mail server returned no {method_name} response for tag {tag}")
 
     async def _resolve_domain_id(self, domain: str) -> str:
@@ -430,6 +427,14 @@ class StalwartMailClient(MailClient):
         if bcc:
             create_email["bcc"] = addresses(bcc)
 
+        envelope_recipients = addresses([*to, *cc, *bcc])
+        envelope = {
+            "mailFrom": {"email": from_address, "parameters": None},
+            "rcptTo": [
+                {"email": recipient["email"], "parameters": None}
+                for recipient in envelope_recipients
+            ],
+        }
         body = {
             "methodCalls": [
                 [
@@ -445,10 +450,11 @@ class StalwartMailClient(MailClient):
                             self._SUBMISSION_CREATE_KEY: {
                                 "emailId": f"#{self._EMAIL_CREATE_KEY}",
                                 "identityId": identity_id,
+                                "envelope": envelope,
                             }
                         },
                         "onSuccessUpdateEmail": {
-                            f"#{self._EMAIL_CREATE_KEY}": {
+                            f"#{self._SUBMISSION_CREATE_KEY}": {
                                 f"mailboxIds/{draft_id}": None,
                                 f"mailboxIds/{sent_id}": True,
                                 "keywords/$draft": None,
@@ -493,6 +499,17 @@ class StalwartMailClient(MailClient):
         )
         if created_submission is None:
             raise MailClientError("Mail server did not return created EmailSubmission id")
+
+        update_args = self._unwrap_tagged_response(response_body, "c2", "Email/set")
+        updated = update_args.get("updated") or {}
+        if str(created_email["id"]) not in updated:
+            not_updated = update_args.get("notUpdated") or {}
+            error = not_updated.get(str(created_email["id"]), {})
+            raise MailClientError(
+                f"Mail server submitted email but did not move it to Sent: "
+                f"{error.get('type', 'missingUpdate')} "
+                f"({error.get('description', 'no description')})"
+            )
 
         return MailSendResult(
             email_id=str(created_email["id"]),

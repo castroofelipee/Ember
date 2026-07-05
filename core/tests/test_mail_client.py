@@ -490,6 +490,7 @@ async def test_send_message_creates_email_and_submission() -> None:
                     {"created": {"submission1": {"id": "submission-id"}}},
                     "c2",
                 ],
+                ["Email/set", {"updated": {"email-id": None}}, "c2"],
             ]
         )
 
@@ -533,10 +534,20 @@ async def test_send_message_creates_email_and_submission() -> None:
     assert submission_method == "EmailSubmission/set"
     assert submission_tag == "c2"
     assert submission_args["create"] == {
-        "submission1": {"emailId": "#email1", "identityId": "identity-id"}
+        "submission1": {
+            "emailId": "#email1",
+            "identityId": "identity-id",
+            "envelope": {
+                "mailFrom": {"email": "ada@example.com", "parameters": None},
+                "rcptTo": [
+                    {"email": "grace@example.com", "parameters": None},
+                    {"email": "team@example.com", "parameters": None},
+                ],
+            },
+        }
     }
     assert submission_args["onSuccessUpdateEmail"] == {
-        "#email1": {
+        "#submission1": {
             "mailboxIds/drafts-id": None,
             "mailboxIds/sent-id": True,
             "keywords/$draft": None,
@@ -559,3 +570,48 @@ async def test_send_message_missing_mailbox_role_raises_client_error() -> None:
             text="Hello",
         )
     assert "sent" in str(exc_info.value)
+
+
+async def test_send_message_without_sent_update_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body["methodCalls"][0][0]
+        if method == "Mailbox/get":
+            return _jmap_response(
+                [
+                    [
+                        "Mailbox/get",
+                        {
+                            "list": [
+                                {"id": "drafts-id", "role": "drafts"},
+                                {"id": "sent-id", "role": "sent"},
+                            ]
+                        },
+                        "c1",
+                    ]
+                ]
+            )
+        if method == "Identity/get":
+            return _jmap_response(
+                [["Identity/get", {"list": [{"id": "identity-id"}]}, "c1"]]
+            )
+        return _jmap_response(
+            [
+                ["Email/set", {"created": {"email1": {"id": "email-id"}}}, "c1"],
+                [
+                    "EmailSubmission/set",
+                    {"created": {"submission1": {"id": "submission-id"}}},
+                    "c2",
+                ],
+            ]
+        )
+
+    with pytest.raises(MailClientError) as exc_info:
+        await _client_with(handler).send_message(
+            account_id="account-id",
+            from_address="ada@example.com",
+            to=["grace@example.com"],
+            subject="Status",
+            text="Hello",
+        )
+    assert "Email/set" in str(exc_info.value)
