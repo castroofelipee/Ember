@@ -207,13 +207,13 @@ async def test_create_account_success_returns_dto_and_sends_bearer() -> None:
     assert fields["name"] == "ada"
     # The resolved Domain Id, not the bare domain name.
     assert fields["domainId"] == "dom1"
-    assert fields["credentials"] == [{"@type": "Password", "secret": "hunter2"}]
+    assert fields["credentials"] == {"0": {"@type": "Password", "secret": "hunter2"}}
     assert fields["roles"] == {"@type": "User"}
     assert fields["permissions"] == {"@type": "Inherit"}
     assert fields["encryptionAtRest"] == {"@type": "Disabled"}
     assert fields["quotas"] == {}
-    assert "aliases" not in fields
-    assert "memberGroupIds" not in fields
+    assert fields["aliases"] == {}
+    assert fields["memberGroupIds"] == {}
 
 
 async def test_create_account_resolves_domain_id_first() -> None:

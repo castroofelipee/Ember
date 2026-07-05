@@ -101,6 +101,7 @@ class StalwartMailClient(MailClient):
     # (docs/rfc/mail-module.md §5).
     _JMAP_PATH = "/jmap"
     _CREATE_KEY = "new1"
+    _PASSWORD_CREDENTIAL_KEY = "0"
 
     def __init__(
         self,
@@ -241,11 +242,15 @@ class StalwartMailClient(MailClient):
             "@type": "User",
             "name": local_part,
             "domainId": domain_id,
-            "credentials": [{"@type": "Password", "secret": password}],
+            "credentials": {
+                self._PASSWORD_CREDENTIAL_KEY: {"@type": "Password", "secret": password}
+            },
             "roles": {"@type": "User"},
             "permissions": {"@type": "Inherit"},
             "encryptionAtRest": {"@type": "Disabled"},
             "quotas": {},
+            "aliases": {},
+            "memberGroupIds": {},
         }
         if quota_bytes is not None:
             create_fields["quotas"] = {"maxDiskQuota": quota_bytes}
