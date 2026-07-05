@@ -14,6 +14,7 @@ from argon2 import _password_hasher
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import httpx
 
@@ -64,6 +65,63 @@ class MailSendResult:
     submission_id: str
 
 
+@dataclass(frozen=True)
+class MailAddress:
+    email: str
+    name: str | None = None
+
+
+@dataclass(frozen=True)
+class MailboxInfo:
+    id: str
+    name: str
+    role: str | None
+    total_emails: int
+    total_threads: int
+    unread_emails: int
+    unread_threads: int
+
+
+@dataclass(frozen=True)
+class MailMessageSummary:
+    id: str
+    thread_id: str
+    mailbox_ids: tuple[str, ...]
+    keywords: tuple[str, ...]
+    has_attachment: bool
+    sender: MailAddress | None
+    subject: str
+    preview: str
+    received_at: datetime
+    size: int
+
+
+@dataclass(frozen=True)
+class MailMessageDetail:
+    id: str
+    thread_id: str
+    mailbox_ids: tuple[str, ...]
+    keywords: tuple[str, ...]
+    has_attachment: bool
+    sender: MailAddress | None
+    to: tuple[MailAddress, ...]
+    cc: tuple[MailAddress, ...]
+    bcc: tuple[MailAddress, ...]
+    reply_to: tuple[MailAddress, ...]
+    subject: str
+    preview: str
+    received_at: datetime
+    size: int
+    text_body: str
+    html_body: str
+
+
+@dataclass(frozen=True)
+class MailMessageUpdate:
+    seen: bool | None = None
+    mailbox_role: str | None = None
+
+
 class MailClient(ABC):
     """Abstraction over a mail server's management surface. Only account
     lifecycle is modeled for now; message read/send (JMAP) comes later."""
@@ -101,6 +159,37 @@ class MailClient(ABC):
         bcc: Sequence[str] = (),
     ) -> MailSendResult:
         """Create and submit a text email through the provider."""
+
+    @abstractmethod
+    async def list_mailboxes(self, *, account_id: str) -> Sequence[MailboxInfo]:
+        """List mailboxes for an account."""
+
+    @abstractmethod
+    async def list_messages(
+        self,
+        *,
+        account_id: str,
+        mailbox_role: str,
+        limit: int = 50,
+        collapse_threads: bool = True,
+    ) -> Sequence[MailMessageSummary]:
+        """List messages or collapsed threads for a mailbox role."""
+
+    @abstractmethod
+    async def get_message(self, *, account_id: str, message_id: str) -> MailMessageDetail:
+        """Fetch one message in detail."""
+
+    @abstractmethod
+    async def update_message(
+        self, *, account_id: str, message_id: str, patch: MailMessageUpdate
+    ) -> MailMessageDetail:
+        """Update message flags or mailbox placement."""
+
+    @abstractmethod
+    async def list_thread_messages(
+        self, *, account_id: str, thread_id: str
+    ) -> Sequence[MailMessageDetail]:
+        """Fetch all messages in a thread."""
 
 
 class StalwartMailClient(MailClient):
@@ -374,6 +463,84 @@ class StalwartMailClient(MailClient):
             )
         return found
 
+    @staticmethod
+    def _mail_address(data: dict | None) -> MailAddress | None:
+        if not data:
+            return None
+        email = str(data.get("email", "")).strip()
+        if not email:
+            return None
+        name = data.get("name")
+        return MailAddress(email=email, name=None if name in (None, "") else str(name))
+
+    @classmethod
+    def _mail_addresses(cls, values: Sequence[dict] | None) -> tuple[MailAddress, ...]:
+        return tuple(address for address in (cls._mail_address(value) for value in (values or ())) if address)
+
+    @staticmethod
+    def _parse_received_at(value: str) -> datetime:
+        normalized = value.strip()
+        if normalized.endswith("Z"):
+            normalized = normalized[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed
+
+    @staticmethod
+    def _body_value(parts: Sequence[dict] | None, body_values: dict | None) -> str:
+        body_values = body_values or {}
+        chunks: list[str] = []
+        for part in parts or ():
+            part_id = str(part.get("partId", ""))
+            if not part_id:
+                continue
+            value = body_values.get(part_id, {})
+            text = value.get("value")
+            if isinstance(text, str) and text:
+                chunks.append(text)
+        return "\n\n".join(chunks).strip()
+
+    def _message_summary(self, email: dict) -> MailMessageSummary:
+        sender = self._mail_address((email.get("from") or [None])[0])
+        return MailMessageSummary(
+            id=str(email["id"]),
+            thread_id=str(email["threadId"]),
+            mailbox_ids=tuple(str(mailbox_id) for mailbox_id in (email.get("mailboxIds") or {}).keys()),
+            keywords=tuple(
+                sorted(str(keyword) for keyword, enabled in (email.get("keywords") or {}).items() if enabled)
+            ),
+            has_attachment=bool(email.get("hasAttachment", False)),
+            sender=sender,
+            subject=str(email.get("subject") or ""),
+            preview=str(email.get("preview") or ""),
+            received_at=self._parse_received_at(str(email["receivedAt"])),
+            size=int(email.get("size") or 0),
+        )
+
+    def _message_detail(self, email: dict) -> MailMessageDetail:
+        body_values = email.get("bodyValues") or {}
+        return MailMessageDetail(
+            id=str(email["id"]),
+            thread_id=str(email["threadId"]),
+            mailbox_ids=tuple(str(mailbox_id) for mailbox_id in (email.get("mailboxIds") or {}).keys()),
+            keywords=tuple(
+                sorted(str(keyword) for keyword, enabled in (email.get("keywords") or {}).items() if enabled)
+            ),
+            has_attachment=bool(email.get("hasAttachment", False)),
+            sender=self._mail_address((email.get("from") or [None])[0]),
+            to=self._mail_addresses(email.get("to")),
+            cc=self._mail_addresses(email.get("cc")),
+            bcc=self._mail_addresses(email.get("bcc")),
+            reply_to=self._mail_addresses(email.get("replyTo")),
+            subject=str(email.get("subject") or ""),
+            preview=str(email.get("preview") or ""),
+            received_at=self._parse_received_at(str(email["receivedAt"])),
+            size=int(email.get("size") or 0),
+            text_body=self._body_value(email.get("textBody"), body_values),
+            html_body=self._body_value(email.get("htmlBody"), body_values),
+        )
+
     async def _resolve_identity_id(self, account_id: str, from_address: str) -> str:
         body = {
             "methodCalls": [["Identity/get", {"accountId": account_id, "ids": None}, "c1"]],
@@ -515,3 +682,238 @@ class StalwartMailClient(MailClient):
             email_id=str(created_email["id"]),
             submission_id=str(created_submission["id"]),
         )
+
+    async def list_mailboxes(self, *, account_id: str) -> Sequence[MailboxInfo]:
+        body = {
+            "methodCalls": [["Mailbox/get", {"accountId": account_id, "ids": None}, "c1"]],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        arguments = self._unwrap_response(await self._call_jmap(body), "Mailbox/get")
+        mailboxes: list[MailboxInfo] = []
+        for mailbox in arguments.get("list") or []:
+            mailboxes.append(
+                MailboxInfo(
+                    id=str(mailbox["id"]),
+                    name=str(mailbox.get("name") or ""),
+                    role=None if mailbox.get("role") in (None, "") else str(mailbox["role"]),
+                    total_emails=int(mailbox.get("totalEmails") or 0),
+                    total_threads=int(mailbox.get("totalThreads") or 0),
+                    unread_emails=int(mailbox.get("unreadEmails") or 0),
+                    unread_threads=int(mailbox.get("unreadThreads") or 0),
+                )
+            )
+        return tuple(mailboxes)
+
+    async def list_messages(
+        self,
+        *,
+        account_id: str,
+        mailbox_role: str,
+        limit: int = 50,
+        collapse_threads: bool = True,
+    ) -> Sequence[MailMessageSummary]:
+        mailbox_ids = await self._resolve_mailbox_ids_by_role(account_id, (mailbox_role,))
+        mailbox_id = mailbox_ids[mailbox_role]
+        body = {
+            "methodCalls": [
+                [
+                    "Email/query",
+                    {
+                        "accountId": account_id,
+                        "filter": {"inMailbox": mailbox_id},
+                        "sort": [{"property": "receivedAt", "isAscending": False}],
+                        "collapseThreads": collapse_threads,
+                        "position": 0,
+                        "limit": limit,
+                    },
+                    "c1",
+                ],
+                [
+                    "Email/get",
+                    {
+                        "accountId": account_id,
+                        "#ids": {"resultOf": "c1", "name": "Email/query", "path": "/ids"},
+                        "properties": [
+                            "threadId",
+                            "mailboxIds",
+                            "keywords",
+                            "hasAttachment",
+                            "from",
+                            "subject",
+                            "receivedAt",
+                            "size",
+                            "preview",
+                        ],
+                    },
+                    "c2",
+                ],
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        response_body = await self._call_jmap(body)
+        arguments = self._unwrap_tagged_response(response_body, "c2", "Email/get")
+        return tuple(self._message_summary(email) for email in (arguments.get("list") or []))
+
+    async def get_message(self, *, account_id: str, message_id: str) -> MailMessageDetail:
+        body = {
+            "methodCalls": [
+                [
+                    "Email/get",
+                    {
+                        "accountId": account_id,
+                        "ids": [message_id],
+                        "properties": [
+                            "threadId",
+                            "mailboxIds",
+                            "keywords",
+                            "hasAttachment",
+                            "from",
+                            "to",
+                            "cc",
+                            "bcc",
+                            "replyTo",
+                            "subject",
+                            "receivedAt",
+                            "size",
+                            "preview",
+                            "textBody",
+                            "htmlBody",
+                            "bodyValues",
+                        ],
+                        "bodyProperties": ["partId", "type"],
+                        "fetchTextBodyValues": True,
+                        "fetchHTMLBodyValues": True,
+                    },
+                    "c1",
+                ]
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        arguments = self._unwrap_response(await self._call_jmap(body), "Email/get")
+        emails = arguments.get("list") or []
+        if not emails:
+            raise MailClientError(f"Mail server returned no message for id {message_id!r}")
+        return self._message_detail(emails[0])
+
+    async def update_message(
+        self, *, account_id: str, message_id: str, patch: MailMessageUpdate
+    ) -> MailMessageDetail:
+        mailbox_patch: dict[str, bool | None] = {}
+        if patch.mailbox_role is not None:
+            all_mailboxes = await self.list_mailboxes(account_id=account_id)
+            role_to_id = {mailbox.role: mailbox.id for mailbox in all_mailboxes if mailbox.role}
+            target_mailbox_id = role_to_id.get(patch.mailbox_role)
+            if target_mailbox_id is None:
+                raise MailClientError(
+                    f"Mail server account {account_id!r} is missing mailbox role {patch.mailbox_role!r}"
+                )
+            current = await self.get_message(account_id=account_id, message_id=message_id)
+            system_roles = {"inbox", "archive", "trash", "junk", "sent", "drafts"}
+            mailbox_ids = set(current.mailbox_ids)
+            for role, mailbox_id in role_to_id.items():
+                if role in system_roles and mailbox_id in mailbox_ids and mailbox_id != target_mailbox_id:
+                    mailbox_patch[f"mailboxIds/{mailbox_id}"] = None
+            mailbox_patch[f"mailboxIds/{target_mailbox_id}"] = True
+
+        keyword_patch: dict[str, bool | None] = {}
+        if patch.seen is not None:
+            keyword_patch["keywords/$seen"] = True if patch.seen else None
+
+        update_fields = {**mailbox_patch, **keyword_patch}
+        if not update_fields:
+            return await self.get_message(account_id=account_id, message_id=message_id)
+
+        body = {
+            "methodCalls": [
+                [
+                    "Email/set",
+                    {"accountId": account_id, "update": {message_id: update_fields}},
+                    "c1",
+                ],
+                [
+                    "Email/get",
+                    {"accountId": account_id, "ids": [message_id], "properties": [
+                        "threadId",
+                        "mailboxIds",
+                        "keywords",
+                        "hasAttachment",
+                        "from",
+                        "to",
+                        "cc",
+                        "bcc",
+                        "replyTo",
+                        "subject",
+                        "receivedAt",
+                        "size",
+                        "preview",
+                        "textBody",
+                        "htmlBody",
+                        "bodyValues",
+                    ], "bodyProperties": ["partId", "type"], "fetchTextBodyValues": True, "fetchHTMLBodyValues": True},
+                    "c2",
+                ],
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        response_body = await self._call_jmap(body)
+        arguments = self._unwrap_tagged_response(response_body, "c1", "Email/set")
+        not_updated = arguments.get("notUpdated") or {}
+        if message_id in not_updated:
+            error = not_updated[message_id]
+            raise MailClientError(
+                f"Mail server refused to update message {message_id!r}: "
+                f"{error.get('type')} ({error.get('description', 'no description')})"
+            )
+        get_args = self._unwrap_tagged_response(response_body, "c2", "Email/get")
+        emails = get_args.get("list") or []
+        if not emails:
+            raise MailClientError(f"Mail server returned no updated message for id {message_id!r}")
+        return self._message_detail(emails[0])
+
+    async def list_thread_messages(
+        self, *, account_id: str, thread_id: str
+    ) -> Sequence[MailMessageDetail]:
+        body = {
+            "methodCalls": [
+                ["Thread/get", {"accountId": account_id, "ids": [thread_id]}, "c1"],
+                [
+                    "Email/get",
+                    {
+                        "accountId": account_id,
+                        "#ids": {"resultOf": "c1", "name": "Thread/get", "path": "/list/0/emailIds"},
+                        "properties": [
+                            "threadId",
+                            "mailboxIds",
+                            "keywords",
+                            "hasAttachment",
+                            "from",
+                            "to",
+                            "cc",
+                            "bcc",
+                            "replyTo",
+                            "subject",
+                            "receivedAt",
+                            "size",
+                            "preview",
+                            "textBody",
+                            "htmlBody",
+                            "bodyValues",
+                        ],
+                        "bodyProperties": ["partId", "type"],
+                        "fetchTextBodyValues": True,
+                        "fetchHTMLBodyValues": True,
+                    },
+                    "c2",
+                ],
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        response_body = await self._call_jmap(body)
+        thread_args = self._unwrap_tagged_response(response_body, "c1", "Thread/get")
+        threads = thread_args.get("list") or []
+        if not threads:
+            raise MailClientError(f"Mail server returned no thread for id {thread_id!r}")
+        email_args = self._unwrap_tagged_response(response_body, "c2", "Email/get")
+        details = [self._message_detail(email) for email in (email_args.get("list") or [])]
+        details.sort(key=lambda item: item.received_at)
+        return tuple(details)

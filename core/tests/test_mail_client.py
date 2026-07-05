@@ -22,7 +22,7 @@ from ember.mail import (
     StalwartMailClient,
     get_mail_client,
 )
-from ember.mail.client import MailAccount
+from ember.mail.client import MailAccount, MailMessageUpdate
 
 
 def _client_with(handler) -> StalwartMailClient:
@@ -615,3 +615,313 @@ async def test_send_message_without_sent_update_raises_client_error() -> None:
             text="Hello",
         )
     assert "Email/set" in str(exc_info.value)
+
+
+async def test_list_mailboxes_returns_counts_and_roles() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [
+                [
+                    "Mailbox/get",
+                    {
+                        "list": [
+                            {
+                                "id": "inbox-id",
+                                "name": "Inbox",
+                                "role": "inbox",
+                                "totalEmails": 12,
+                                "totalThreads": 7,
+                                "unreadEmails": 3,
+                                "unreadThreads": 2,
+                            }
+                        ]
+                    },
+                    "c1",
+                ]
+            ]
+        )
+
+    mailboxes = await _client_with(handler).list_mailboxes(account_id="account-id")
+
+    assert len(mailboxes) == 1
+    assert mailboxes[0].id == "inbox-id"
+    assert mailboxes[0].role == "inbox"
+    assert mailboxes[0].unread_emails == 3
+
+
+async def test_list_messages_queries_mailbox_and_fetches_email_details() -> None:
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        method = body["methodCalls"][0][0]
+        if method == "Mailbox/get":
+            return _jmap_response(
+                [
+                    [
+                        "Mailbox/get",
+                        {"list": [{"id": "inbox-id", "name": "Inbox", "role": "inbox"}]},
+                        "c1",
+                    ]
+                ]
+            )
+        return _jmap_response(
+            [
+                ["Email/query", {"ids": ["message-1"]}, "c1"],
+                [
+                    "Email/get",
+                    {
+                        "list": [
+                            {
+                                "id": "message-1",
+                                "threadId": "thread-1",
+                                "mailboxIds": {"inbox-id": True},
+                                "keywords": {"$seen": True},
+                                "hasAttachment": False,
+                                "from": [{"email": "grace@example.com", "name": "Grace"}],
+                                "subject": "Hello",
+                                "receivedAt": "2026-07-05T12:00:00Z",
+                                "size": 321,
+                                "preview": "Hi there",
+                            }
+                        ]
+                    },
+                    "c2",
+                ],
+            ]
+        )
+
+    messages = await _client_with(handler).list_messages(
+        account_id="account-id",
+        mailbox_role="inbox",
+        limit=25,
+    )
+
+    assert len(messages) == 1
+    assert messages[0].id == "message-1"
+    assert messages[0].thread_id == "thread-1"
+    assert messages[0].sender is not None
+    assert messages[0].sender.email == "grace@example.com"
+    assert messages[0].subject == "Hello"
+    assert calls[1]["methodCalls"][0][1]["collapseThreads"] is True
+    assert calls[1]["methodCalls"][0][1]["filter"] == {"inMailbox": "inbox-id"}
+
+
+async def test_get_message_returns_text_and_html_bodies() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [
+                [
+                    "Email/get",
+                    {
+                        "list": [
+                            {
+                                "id": "message-1",
+                                "threadId": "thread-1",
+                                "mailboxIds": {"inbox-id": True},
+                                "keywords": {},
+                                "hasAttachment": False,
+                                "from": [{"email": "grace@example.com", "name": "Grace"}],
+                                "to": [{"email": "ada@example.com"}],
+                                "cc": [],
+                                "bcc": [],
+                                "replyTo": [{"email": "reply@example.com"}],
+                                "subject": "Hello",
+                                "receivedAt": "2026-07-05T12:00:00Z",
+                                "size": 321,
+                                "preview": "Hi there",
+                                "textBody": [{"partId": "text", "type": "text/plain"}],
+                                "htmlBody": [{"partId": "html", "type": "text/html"}],
+                                "bodyValues": {
+                                    "text": {"value": "Plain body"},
+                                    "html": {"value": "<p>HTML body</p>"},
+                                },
+                            }
+                        ]
+                    },
+                    "c1",
+                ]
+            ]
+        )
+
+    message = await _client_with(handler).get_message(
+        account_id="account-id",
+        message_id="message-1",
+    )
+
+    assert message.id == "message-1"
+    assert message.to[0].email == "ada@example.com"
+    assert message.reply_to[0].email == "reply@example.com"
+    assert message.text_body == "Plain body"
+    assert message.html_body == "<p>HTML body</p>"
+
+
+async def test_update_message_sets_seen_and_moves_folder() -> None:
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        method = body["methodCalls"][0][0]
+        if method == "Mailbox/get":
+            return _jmap_response(
+                [
+                    [
+                        "Mailbox/get",
+                        {
+                            "list": [
+                                {"id": "inbox-id", "name": "Inbox", "role": "inbox"},
+                                {"id": "archive-id", "name": "Archive", "role": "archive"},
+                            ]
+                        },
+                        "c1",
+                    ]
+                ]
+            )
+        if method == "Email/get" and body["methodCalls"][0][2] == "c1":
+            return _jmap_response(
+                [
+                    [
+                        "Email/get",
+                        {
+                            "list": [
+                                {
+                                    "id": "message-1",
+                                    "threadId": "thread-1",
+                                    "mailboxIds": {"inbox-id": True},
+                                    "keywords": {},
+                                    "hasAttachment": False,
+                                    "from": [],
+                                    "to": [],
+                                    "cc": [],
+                                    "bcc": [],
+                                    "replyTo": [],
+                                    "subject": "Hello",
+                                    "receivedAt": "2026-07-05T12:00:00Z",
+                                    "size": 321,
+                                    "preview": "Hi there",
+                                    "textBody": [],
+                                    "htmlBody": [],
+                                    "bodyValues": {},
+                                }
+                            ]
+                        },
+                        "c1",
+                    ]
+                ]
+            )
+        return _jmap_response(
+            [
+                ["Email/set", {"updated": {"message-1": None}}, "c1"],
+                [
+                    "Email/get",
+                    {
+                        "list": [
+                            {
+                                "id": "message-1",
+                                "threadId": "thread-1",
+                                "mailboxIds": {"archive-id": True},
+                                "keywords": {"$seen": True},
+                                "hasAttachment": False,
+                                "from": [],
+                                "to": [],
+                                "cc": [],
+                                "bcc": [],
+                                "replyTo": [],
+                                "subject": "Hello",
+                                "receivedAt": "2026-07-05T12:00:00Z",
+                                "size": 321,
+                                "preview": "Hi there",
+                                "textBody": [],
+                                "htmlBody": [],
+                                "bodyValues": {},
+                            }
+                        ]
+                    },
+                    "c2",
+                ],
+            ]
+        )
+
+    message = await _client_with(handler).update_message(
+        account_id="account-id",
+        message_id="message-1",
+        patch=MailMessageUpdate(seen=True, mailbox_role="archive"),
+    )
+
+    assert message.mailbox_ids == ("archive-id",)
+    assert message.keywords == ("$seen",)
+    update_call = calls[2]["methodCalls"][0][1]["update"]["message-1"]
+    assert update_call == {
+        "mailboxIds/inbox-id": None,
+        "mailboxIds/archive-id": True,
+        "keywords/$seen": True,
+    }
+
+
+async def test_list_thread_messages_fetches_thread_email_ids() -> None:
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        return _jmap_response(
+            [
+                ["Thread/get", {"list": [{"id": "thread-1", "emailIds": ["m1", "m2"]}]}, "c1"],
+                [
+                    "Email/get",
+                    {
+                        "list": [
+                            {
+                                "id": "m2",
+                                "threadId": "thread-1",
+                                "mailboxIds": {"inbox-id": True},
+                                "keywords": {},
+                                "hasAttachment": False,
+                                "from": [],
+                                "to": [],
+                                "cc": [],
+                                "bcc": [],
+                                "replyTo": [],
+                                "subject": "Second",
+                                "receivedAt": "2026-07-05T13:00:00Z",
+                                "size": 2,
+                                "preview": "2",
+                                "textBody": [],
+                                "htmlBody": [],
+                                "bodyValues": {},
+                            },
+                            {
+                                "id": "m1",
+                                "threadId": "thread-1",
+                                "mailboxIds": {"inbox-id": True},
+                                "keywords": {},
+                                "hasAttachment": False,
+                                "from": [],
+                                "to": [],
+                                "cc": [],
+                                "bcc": [],
+                                "replyTo": [],
+                                "subject": "First",
+                                "receivedAt": "2026-07-05T12:00:00Z",
+                                "size": 1,
+                                "preview": "1",
+                                "textBody": [],
+                                "htmlBody": [],
+                                "bodyValues": {},
+                            },
+                        ]
+                    },
+                    "c2",
+                ]
+            ]
+        )
+
+    messages = await _client_with(handler).list_thread_messages(
+        account_id="account-id",
+        thread_id="thread-1",
+    )
+
+    assert [message.id for message in messages] == ["m1", "m2"]
+    assert calls[0]["methodCalls"][0] == ["Thread/get", {"accountId": "account-id", "ids": ["thread-1"]}, "c1"]

@@ -1,16 +1,26 @@
 import contextlib
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ember.mail import MailClient, MailClientError
-from ember.models import MailAccount, MailDomain
+from ember.mail import (
+    MailClient,
+    MailClientError,
+    MailMessageDetail,
+    MailMessageSummary,
+    MailMessageUpdate,
+    MailboxInfo,
+)
+from ember.models import MailAccount, MailAccountStatus, MailDomain
 from ember.schemas.mail import (
+    MailFolder,
     MailAccountRegisterRequest,
     MailAccountUpdateRequest,
     MailMessageSendRequest,
+    MailMessageUpdateRequest,
     MailDomainCreateRequest,
     MailDomainUpdateRequest,
     email_domain,
@@ -50,6 +60,35 @@ class EmailAlreadyExistsError(Exception):
 
 class MailAccountNotActiveError(Exception):
     """The account exists locally but should not be used to send mail."""
+
+
+@dataclass(frozen=True)
+class WorkspaceMailbox:
+    account_id: uuid.UUID
+    account_email: str
+    mailbox: MailboxInfo
+
+
+@dataclass(frozen=True)
+class WorkspaceMailMessageSummary:
+    account_id: uuid.UUID
+    account_email: str
+    message: MailMessageSummary
+
+
+@dataclass(frozen=True)
+class WorkspaceMailMessageDetail:
+    account_id: uuid.UUID
+    account_email: str
+    message: MailMessageDetail
+
+
+@dataclass(frozen=True)
+class WorkspaceMailThreadPreview:
+    account_id: uuid.UUID
+    account_email: str
+    thread_id: str
+    messages: tuple[MailMessageDetail, ...]
 
 
 async def create_mail_domain(
@@ -245,3 +284,157 @@ async def send_mail_message(
         subject=data.subject,
         text=data.text,
     )
+
+
+async def _active_workspace_accounts(
+    session: AsyncSession, workspace_id: uuid.UUID
+) -> list[MailAccount]:
+    return list(
+        (
+            await session.execute(
+                select(MailAccount)
+                .where(MailAccount.workspace_id == workspace_id)
+                .where(MailAccount.status == MailAccountStatus.ACTIVE)
+                .order_by(MailAccount.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def list_workspace_mailboxes(
+    session: AsyncSession, workspace_id: uuid.UUID, mail_client: MailClient
+) -> list[WorkspaceMailbox]:
+    mailboxes: list[WorkspaceMailbox] = []
+    for account in await _active_workspace_accounts(session, workspace_id):
+        for mailbox in await mail_client.list_mailboxes(account_id=account.provider_account_id):
+            mailboxes.append(
+                WorkspaceMailbox(
+                    account_id=account.id,
+                    account_email=account.email,
+                    mailbox=mailbox,
+                )
+            )
+    return mailboxes
+
+
+async def list_workspace_messages(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    mail_client: MailClient,
+    *,
+    folder: MailFolder,
+    limit: int,
+    account: MailAccount | None = None,
+) -> list[WorkspaceMailMessageSummary]:
+    accounts = [account] if account is not None else await _active_workspace_accounts(session, workspace_id)
+    messages: list[WorkspaceMailMessageSummary] = []
+    for item in accounts:
+        for message in await mail_client.list_messages(
+            account_id=item.provider_account_id,
+            mailbox_role=folder,
+            limit=limit,
+        ):
+            messages.append(
+                WorkspaceMailMessageSummary(
+                    account_id=item.id,
+                    account_email=item.email,
+                    message=message,
+                )
+            )
+    messages.sort(key=lambda item: item.message.received_at, reverse=True)
+    return messages[:limit]
+
+
+async def get_workspace_message(
+    account: MailAccount, message_id: str, mail_client: MailClient
+) -> WorkspaceMailMessageDetail:
+    message = await mail_client.get_message(
+        account_id=account.provider_account_id,
+        message_id=message_id,
+    )
+    return WorkspaceMailMessageDetail(
+        account_id=account.id,
+        account_email=account.email,
+        message=message,
+    )
+
+
+async def update_workspace_message(
+    account: MailAccount,
+    message_id: str,
+    data: MailMessageUpdateRequest,
+    mail_client: MailClient,
+) -> WorkspaceMailMessageDetail:
+    message = await mail_client.update_message(
+        account_id=account.provider_account_id,
+        message_id=message_id,
+        patch=MailMessageUpdate(seen=data.seen, mailbox_role=data.folder),
+    )
+    return WorkspaceMailMessageDetail(
+        account_id=account.id,
+        account_email=account.email,
+        message=message,
+    )
+
+
+async def get_workspace_thread(
+    account: MailAccount, thread_id: str, mail_client: MailClient
+) -> list[WorkspaceMailMessageDetail]:
+    messages = await mail_client.list_thread_messages(
+        account_id=account.provider_account_id,
+        thread_id=thread_id,
+    )
+    return [
+        WorkspaceMailMessageDetail(
+            account_id=account.id,
+            account_email=account.email,
+            message=message,
+        )
+        for message in messages
+    ]
+
+
+async def list_workspace_thread_previews(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    mail_client: MailClient,
+    *,
+    folder: MailFolder,
+    limit: int,
+    account: MailAccount | None = None,
+) -> list[WorkspaceMailThreadPreview]:
+    summaries = await list_workspace_messages(
+        session,
+        workspace_id,
+        mail_client,
+        folder=folder,
+        limit=limit,
+        account=account,
+    )
+    previews: list[WorkspaceMailThreadPreview] = []
+    for summary in summaries:
+        source_account = account
+        if source_account is None:
+            source_account = await get_mail_account(session, summary.account_id)
+        if source_account is None:
+            continue
+        messages = tuple(
+            await mail_client.list_thread_messages(
+                account_id=source_account.provider_account_id,
+                thread_id=summary.message.thread_id,
+            )
+        )
+        if not messages:
+            continue
+        previews.append(
+            WorkspaceMailThreadPreview(
+                account_id=source_account.id,
+                account_email=source_account.email,
+                thread_id=summary.message.thread_id,
+                messages=messages,
+            )
+        )
+    previews.sort(key=lambda item: max(message.received_at for message in item.messages), reverse=True)
+    return previews[:limit]

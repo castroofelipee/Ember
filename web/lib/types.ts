@@ -85,6 +85,58 @@ export type MailMessageSendResult = {
   submission_id: string;
 };
 
+export type MailFolder = "inbox" | "sent" | "drafts" | "archive" | "trash" | "junk";
+
+export type MailAddress = {
+  email: string;
+  name: string | null;
+};
+
+export type MailMessageSummary = {
+  account_id: string;
+  account_email: string;
+  id: string;
+  thread_id: string;
+  mailbox_ids: string[];
+  keywords: string[];
+  has_attachment: boolean;
+  sender: MailAddress | null;
+  subject: string;
+  preview: string;
+  received_at: string;
+  size: number;
+};
+
+export type MailMessageDetail = MailMessageSummary & {
+  to: MailAddress[];
+  cc: MailAddress[];
+  bcc: MailAddress[];
+  reply_to: MailAddress[];
+  text_body: string;
+  html_body: string;
+};
+
+export type MailThreadPreview = {
+  account_id: string;
+  account_email: string;
+  thread_id: string;
+  subject: string;
+  preview: string;
+  participants: MailAddress[];
+  latest_message: MailMessageSummary;
+  message_count: number;
+  unread_count: number;
+  has_attachment: boolean;
+  received_at: string;
+};
+
+export type MailThread = {
+  account_id: string;
+  account_email: string;
+  thread_id: string;
+  messages: MailMessageDetail[];
+};
+
 export type TimeFormat = "12h" | "24h";
 
 export type Preferences = {

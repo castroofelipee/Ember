@@ -9,6 +9,7 @@ Postgres via `db_session`.
 """
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
@@ -16,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ember.mail import MailAccountAlreadyExistsError, MailClientError, MailConnectionError
 from ember.mail.client import MailAccount as ProvisionedAccount
+from ember.mail.client import MailMessageDetail, MailMessageSummary, MailboxInfo
 from ember.mail.client import MailSendResult
+from ember.mail.client import MailMessageUpdate
 from ember.mail.client import MailClient
 from ember.models import (
     MailAccount,
@@ -87,6 +90,126 @@ class FakeMailClient(MailClient):
 
     async def send_message(self, **kwargs) -> MailSendResult:
         return MailSendResult(email_id="email-1", submission_id="submission-1")
+
+    async def list_mailboxes(self, *, account_id: str):
+        return (
+            MailboxInfo(
+                id=f"inbox-{account_id}",
+                name="Inbox",
+                role="inbox",
+                total_emails=0,
+                total_threads=0,
+                unread_emails=0,
+                unread_threads=0,
+            ),
+        )
+
+    async def list_messages(
+        self,
+        *,
+        account_id: str,
+        mailbox_role: str,
+        limit: int = 50,
+        collapse_threads: bool = True,
+    ):
+        return (
+            MailMessageSummary(
+                id=f"msg-{account_id}",
+                thread_id=f"thread-{account_id}",
+                mailbox_ids=(f"{mailbox_role}-{account_id}",),
+                keywords=(),
+                has_attachment=False,
+                sender=None,
+                subject="Inbox message",
+                preview="Preview",
+                received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+                size=128,
+            ),
+        )
+
+    async def get_message(self, *, account_id: str, message_id: str):
+        return MailMessageDetail(
+            id=message_id,
+            thread_id=f"thread-{account_id}",
+            mailbox_ids=(f"inbox-{account_id}",),
+            keywords=(),
+            has_attachment=False,
+            sender=None,
+            to=(),
+            cc=(),
+            bcc=(),
+            reply_to=(),
+            subject="Inbox message",
+            preview="Preview",
+            received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+            size=128,
+            text_body="Hello from inbox",
+            html_body="",
+        )
+
+    async def update_message(
+        self, *, account_id: str, message_id: str, patch: MailMessageUpdate
+    ) -> MailMessageDetail:
+        keywords = ("$seen",) if patch.seen else ()
+        mailbox_id = f"{patch.mailbox_role or 'inbox'}-{account_id}"
+        return MailMessageDetail(
+            id=message_id,
+            thread_id=f"thread-{account_id}",
+            mailbox_ids=(mailbox_id,),
+            keywords=keywords,
+            has_attachment=False,
+            sender=None,
+            to=(),
+            cc=(),
+            bcc=(),
+            reply_to=(),
+            subject="Inbox message",
+            preview="Preview",
+            received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+            size=128,
+            text_body="Hello from inbox",
+            html_body="",
+        )
+
+    async def list_thread_messages(self, *, account_id: str, thread_id: str):
+        return (
+            MailMessageDetail(
+                id=f"{thread_id}-1",
+                thread_id=thread_id,
+                mailbox_ids=(f"inbox-{account_id}",),
+                keywords=(),
+                has_attachment=False,
+                sender=None,
+                to=(),
+                cc=(),
+                bcc=(),
+                reply_to=(),
+                subject="First",
+                preview="Preview 1",
+                received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+                size=128,
+                text_body="One",
+                html_body="",
+            ),
+            MailMessageDetail(
+                id=f"{thread_id}-2",
+                thread_id=thread_id,
+                mailbox_ids=(f"inbox-{account_id}",),
+                keywords=("$seen",),
+                has_attachment=False,
+                sender=None,
+                to=(),
+                cc=(),
+                bcc=(),
+                reply_to=(),
+                subject="Second",
+                preview="Preview 2",
+                received_at=datetime(2026, 7, 5, 13, 0, tzinfo=UTC),
+                size=256,
+                text_body="Two",
+                html_body="",
+            ),
+        )
 
 
 async def _create_user(db_session: AsyncSession, *, inviter_id=None, **overrides: object):

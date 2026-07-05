@@ -87,7 +87,7 @@ export function Sidebar({
       <button
         type="button"
         className="sidebar-settings-button"
-        onClick={() => router.push(`/workspace/${workspaceId}/mail/domains`)}
+        onClick={() => router.push(`/workspace/${workspaceId}/mail`)}
       >
         <Mail size={18} />
         {open && <span>Mail</span>}

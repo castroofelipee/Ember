@@ -9,7 +9,17 @@ import uuid
 
 from httpx import AsyncClient
 
-from ember.mail import MailAccountAlreadyExistsError, MailConnectionError, MailSendResult
+from datetime import UTC, datetime
+
+from ember.mail import (
+    MailAccountAlreadyExistsError,
+    MailConnectionError,
+    MailMessageDetail,
+    MailMessageSummary,
+    MailMessageUpdate,
+    MailSendResult,
+    MailboxInfo,
+)
 from ember.main import app
 from ember.mail.client import MailAccount as ProvisionedAccount
 from ember.mail.client import MailClient, MailClientError
@@ -112,6 +122,126 @@ class FakeMailClient(MailClient):
         if self._send_error is not None:
             raise self._send_error
         return MailSendResult(email_id="email-1", submission_id="submission-1")
+
+    async def list_mailboxes(self, *, account_id: str):
+        return (
+            MailboxInfo(
+                id=f"inbox-{account_id}",
+                name="Inbox",
+                role="inbox",
+                total_emails=2,
+                total_threads=2,
+                unread_emails=1,
+                unread_threads=1,
+            ),
+        )
+
+    async def list_messages(
+        self,
+        *,
+        account_id: str,
+        mailbox_role: str,
+        limit: int = 50,
+        collapse_threads: bool = True,
+    ):
+        return (
+            MailMessageSummary(
+                id=f"msg-{account_id}",
+                thread_id=f"thread-{account_id}",
+                mailbox_ids=(f"{mailbox_role}-{account_id}",),
+                keywords=("$seen",) if mailbox_role == "sent" else (),
+                has_attachment=False,
+                sender=None,
+                subject=f"{mailbox_role.title()} message",
+                preview="Preview",
+                received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+                size=128,
+            ),
+        )
+
+    async def get_message(self, *, account_id: str, message_id: str):
+        return MailMessageDetail(
+            id=message_id,
+            thread_id=f"thread-{account_id}",
+            mailbox_ids=(f"inbox-{account_id}",),
+            keywords=(),
+            has_attachment=False,
+            sender=None,
+            to=(),
+            cc=(),
+            bcc=(),
+            reply_to=(),
+            subject="Inbox message",
+            preview="Preview",
+            received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+            size=128,
+            text_body="Hello from inbox",
+            html_body="",
+        )
+
+    async def update_message(
+        self, *, account_id: str, message_id: str, patch: MailMessageUpdate
+    ):
+        keywords = ("$seen",) if patch.seen else ()
+        mailbox_id = f"{patch.mailbox_role or 'inbox'}-{account_id}"
+        return MailMessageDetail(
+            id=message_id,
+            thread_id=f"thread-{account_id}",
+            mailbox_ids=(mailbox_id,),
+            keywords=keywords,
+            has_attachment=False,
+            sender=None,
+            to=(),
+            cc=(),
+            bcc=(),
+            reply_to=(),
+            subject="Inbox message",
+            preview="Preview",
+            received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+            size=128,
+            text_body="Hello from inbox",
+            html_body="",
+        )
+
+    async def list_thread_messages(self, *, account_id: str, thread_id: str):
+        return (
+            MailMessageDetail(
+                id=f"{thread_id}-1",
+                thread_id=thread_id,
+                mailbox_ids=(f"inbox-{account_id}",),
+                keywords=(),
+                has_attachment=False,
+                sender=None,
+                to=(),
+                cc=(),
+                bcc=(),
+                reply_to=(),
+                subject="First",
+                preview="Preview 1",
+                received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+                size=128,
+                text_body="One",
+                html_body="",
+            ),
+            MailMessageDetail(
+                id=f"{thread_id}-2",
+                thread_id=thread_id,
+                mailbox_ids=(f"inbox-{account_id}",),
+                keywords=("$seen",),
+                has_attachment=False,
+                sender=None,
+                to=(),
+                cc=(),
+                bcc=(),
+                reply_to=(),
+                subject="Second",
+                preview="Preview 2",
+                received_at=datetime(2026, 7, 5, 13, 0, tzinfo=UTC),
+                size=256,
+                text_body="Two",
+                html_body="",
+            ),
+        )
 
 
 def _use_mail_client(mail_client: MailClient) -> None:
@@ -293,6 +423,14 @@ def _send_url(workspace_id: str, account_id: str) -> str:
     return f"{_accounts_url(workspace_id, account_id)}/messages/send"
 
 
+def _mailboxes_url(workspace_id: str) -> str:
+    return f"{WORKSPACES_URL}/{workspace_id}/mail/mailboxes"
+
+
+def _messages_url(workspace_id: str) -> str:
+    return f"{WORKSPACES_URL}/{workspace_id}/mail/messages"
+
+
 async def test_send_message_requires_auth(client: AsyncClient) -> None:
     token = await _signup(client)
     workspace_id = await _make_workspace(client, token)
@@ -376,6 +514,125 @@ async def test_send_message_provider_rejection_returns_502(client: AsyncClient) 
 
     assert response.status_code == 502
     assert response.json()["detail"] == "Mail server rejected the send request."
+
+
+# --- inbox --------------------------------------------------------------
+
+
+async def test_list_mailboxes_returns_workspace_mailboxes(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    await _make_account(client, token, workspace_id, domain_id)
+
+    response = await client.get(_mailboxes_url(workspace_id), headers=_auth_header(token))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["role"] == "inbox"
+    assert body[0]["account_email"] == "ada@example.com"
+    assert body[0]["unread_emails"] == 1
+
+
+async def test_list_messages_returns_unified_inbox(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    first = await _make_account(client, token, workspace_id, domain_id)
+    second = await _make_account(client, token, workspace_id, domain_id, email="grace@example.com")
+
+    response = await client.get(
+        _messages_url(workspace_id),
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert {body[0]["account_email"], body[1]["account_email"]} == {
+        "ada@example.com",
+        "grace@example.com",
+    }
+    assert {body[0]["account_id"], body[1]["account_id"]} == {first["id"], second["id"]}
+
+
+async def test_list_messages_can_scope_to_one_account(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    account = await _make_account(client, token, workspace_id, domain_id)
+    await _make_account(client, token, workspace_id, domain_id, email="grace@example.com")
+
+    response = await client.get(
+        f"{_messages_url(workspace_id)}?account_id={account['id']}&folder=inbox&limit=10",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["account_id"] == account["id"]
+
+
+async def test_get_message_returns_detail(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    account = await _make_account(client, token, workspace_id, domain_id)
+
+    response = await client.get(
+        f"{_accounts_url(workspace_id, account['id'])}/messages/message-1",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "message-1"
+    assert body["account_id"] == account["id"]
+    assert body["text_body"] == "Hello from inbox"
+
+
+async def test_update_message_can_mark_seen_and_move_folder(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    account = await _make_account(client, token, workspace_id, domain_id)
+
+    response = await client.patch(
+        f"{_accounts_url(workspace_id, account['id'])}/messages/message-1",
+        headers=_auth_header(token),
+        json={"seen": True, "folder": "archive"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == "message-1"
+    assert body["keywords"] == ["$seen"]
+    assert body["mailbox_ids"] == [f"archive-{account['provider_account_id']}"]
+
+
+async def test_get_thread_returns_messages_in_thread(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    account = await _make_account(client, token, workspace_id, domain_id)
+
+    response = await client.get(
+        f"{_accounts_url(workspace_id, account['id'])}/threads/thread-1",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["thread_id"] == "thread-1"
+    assert [message["id"] for message in body["messages"]] == ["thread-1-1", "thread-1-2"]
 
 
 # --- list -----------------------------------------------------------------

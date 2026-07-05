@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -159,14 +160,92 @@ class MailMessageSendResponse(BaseModel):
     submission_id: str
 
 
+MailFolder = Literal["inbox", "sent", "drafts", "archive", "trash", "junk"]
+
+
+class MailAddressResponse(BaseModel):
+    email: str
+    name: str | None = None
+
+
+class MailboxResponse(BaseModel):
+    account_id: uuid.UUID
+    account_email: str
+    mailbox_id: str
+    name: str
+    role: str | None
+    total_emails: int
+    total_threads: int
+    unread_emails: int
+    unread_threads: int
+
+
+class MailMessageSummaryResponse(BaseModel):
+    account_id: uuid.UUID
+    account_email: str
+    id: str
+    thread_id: str
+    mailbox_ids: list[str]
+    keywords: list[str]
+    has_attachment: bool
+    sender: MailAddressResponse | None
+    subject: str
+    preview: str
+    received_at: datetime
+    size: int
+
+
+class MailMessageDetailResponse(MailMessageSummaryResponse):
+    to: list[MailAddressResponse]
+    cc: list[MailAddressResponse]
+    bcc: list[MailAddressResponse]
+    reply_to: list[MailAddressResponse]
+    text_body: str
+    html_body: str
+
+
+class MailMessageUpdateRequest(BaseModel):
+    seen: bool | None = None
+    folder: MailFolder | None = None
+
+
+class MailThreadResponse(BaseModel):
+    account_id: uuid.UUID
+    account_email: str
+    thread_id: str
+    messages: list[MailMessageDetailResponse]
+
+
+class MailThreadPreviewResponse(BaseModel):
+    account_id: uuid.UUID
+    account_email: str
+    thread_id: str
+    subject: str
+    preview: str
+    participants: list[MailAddressResponse]
+    latest_message: MailMessageSummaryResponse
+    message_count: int
+    unread_count: int
+    has_attachment: bool
+    received_at: datetime
+
+
 __all__ = [
+    "MailAddressResponse",
+    "MailboxResponse",
+    "MailFolder",
     "MailAccountRegisterRequest",
     "MailAccountResponse",
     "MailAccountUpdateRequest",
     "MailDomainCreateRequest",
     "MailDomainResponse",
     "MailDomainUpdateRequest",
+    "MailMessageDetailResponse",
     "MailMessageSendRequest",
     "MailMessageSendResponse",
+    "MailMessageSummaryResponse",
+    "MailMessageUpdateRequest",
+    "MailThreadPreviewResponse",
+    "MailThreadResponse",
     "email_domain",
 ]

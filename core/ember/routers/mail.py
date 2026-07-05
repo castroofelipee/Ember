@@ -18,14 +18,22 @@ from ember.mail import (
 )
 from ember.models import MailAccount, MailDomain, User
 from ember.schemas.mail import (
+    MailAddressResponse,
+    MailboxResponse,
+    MailFolder,
     MailAccountRegisterRequest,
     MailAccountResponse,
     MailAccountUpdateRequest,
     MailDomainCreateRequest,
     MailDomainResponse,
     MailDomainUpdateRequest,
+    MailMessageDetailResponse,
     MailMessageSendRequest,
     MailMessageSendResponse,
+    MailMessageSummaryResponse,
+    MailMessageUpdateRequest,
+    MailThreadPreviewResponse,
+    MailThreadResponse,
 )
 from ember.services.mail import (
     DomainAlreadyExistsError,
@@ -39,10 +47,16 @@ from ember.services.mail import (
     delete_mail_domain,
     get_mail_account,
     get_mail_domain,
+    get_workspace_message,
+    get_workspace_thread,
     list_mail_accounts,
     list_mail_domains,
+    list_workspace_mailboxes,
+    list_workspace_messages,
+    list_workspace_thread_previews,
     register_mail_account,
     send_mail_message,
+    update_workspace_message,
     update_mail_account,
     update_mail_domain,
 )
@@ -93,6 +107,96 @@ async def _get_account_or_404(
     if account is None or account.workspace_id != workspace_id:
         raise _NOT_FOUND
     return account
+
+
+def _mail_address_response(address) -> MailAddressResponse | None:
+    if address is None:
+        return None
+    return MailAddressResponse(email=address.email, name=address.name)
+
+
+def _message_summary_response(item) -> MailMessageSummaryResponse:
+    return MailMessageSummaryResponse(
+        account_id=item.account_id,
+        account_email=item.account_email,
+        id=item.message.id,
+        thread_id=item.message.thread_id,
+        mailbox_ids=list(item.message.mailbox_ids),
+        keywords=list(item.message.keywords),
+        has_attachment=item.message.has_attachment,
+        sender=_mail_address_response(item.message.sender),
+        subject=item.message.subject,
+        preview=item.message.preview,
+        received_at=item.message.received_at,
+        size=item.message.size,
+    )
+
+
+def _message_detail_response(item) -> MailMessageDetailResponse:
+    summary = _message_summary_response(item)
+    return MailMessageDetailResponse(
+        **summary.model_dump(),
+        to=[MailAddressResponse(email=address.email, name=address.name) for address in item.message.to],
+        cc=[MailAddressResponse(email=address.email, name=address.name) for address in item.message.cc],
+        bcc=[MailAddressResponse(email=address.email, name=address.name) for address in item.message.bcc],
+        reply_to=[
+            MailAddressResponse(email=address.email, name=address.name)
+            for address in item.message.reply_to
+        ],
+        text_body=item.message.text_body,
+        html_body=item.message.html_body,
+    )
+
+
+def _thread_response(items) -> MailThreadResponse:
+    first = items[0]
+    return MailThreadResponse(
+        account_id=first.account_id,
+        account_email=first.account_email,
+        thread_id=first.message.thread_id,
+        messages=[_message_detail_response(item) for item in items],
+    )
+
+
+def _thread_preview_response(item) -> MailThreadPreviewResponse:
+    latest = max(item.messages, key=lambda message: message.received_at)
+    participants_by_email = {}
+    for message in item.messages:
+        for address in (message.sender, *message.to, *message.cc):
+            if address is None:
+                continue
+            participants_by_email.setdefault(
+                address.email.lower(),
+                MailAddressResponse(email=address.email, name=address.name),
+            )
+
+    latest_message = MailMessageSummaryResponse(
+        account_id=item.account_id,
+        account_email=item.account_email,
+        id=latest.id,
+        thread_id=latest.thread_id,
+        mailbox_ids=list(latest.mailbox_ids),
+        keywords=list(latest.keywords),
+        has_attachment=latest.has_attachment,
+        sender=_mail_address_response(latest.sender),
+        subject=latest.subject,
+        preview=latest.preview,
+        received_at=latest.received_at,
+        size=latest.size,
+    )
+    return MailThreadPreviewResponse(
+        account_id=item.account_id,
+        account_email=item.account_email,
+        thread_id=item.thread_id,
+        subject=latest.subject,
+        preview=latest.preview,
+        participants=list(participants_by_email.values()),
+        latest_message=latest_message,
+        message_count=len(item.messages),
+        unread_count=sum(1 for message in item.messages if "$seen" not in message.keywords),
+        has_attachment=any(message.has_attachment for message in item.messages),
+        received_at=latest.received_at,
+    )
 
 
 @router.post("/{workspace_id}/mail/domains", status_code=status.HTTP_201_CREATED)
@@ -228,6 +332,237 @@ async def list_mail_accounts_route(
     await _require_membership(db, workspace_id, current_user.id)
     accounts = await list_mail_accounts(db, workspace_id)
     return [MailAccountResponse.model_validate(a) for a in accounts]
+
+
+@router.get("/{workspace_id}/mail/mailboxes")
+async def list_mailboxes_route(
+    workspace_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> list[MailboxResponse]:
+    await _require_membership(db, workspace_id, current_user.id)
+    try:
+        mailboxes = await list_workspace_mailboxes(db, workspace_id, mail_client)
+    except MailAuthenticationError as exc:
+        logger.warning("Mail server rejected admin credentials listing mailboxes: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
+    except (MailConnectionError, MailTimeoutError) as exc:
+        logger.warning("Mail server error listing mailboxes: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected mailbox list: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the mailbox list request.",
+        ) from exc
+    return [
+        MailboxResponse(
+            account_id=item.account_id,
+            account_email=item.account_email,
+            mailbox_id=item.mailbox.id,
+            name=item.mailbox.name,
+            role=item.mailbox.role,
+            total_emails=item.mailbox.total_emails,
+            total_threads=item.mailbox.total_threads,
+            unread_emails=item.mailbox.unread_emails,
+            unread_threads=item.mailbox.unread_threads,
+        )
+        for item in mailboxes
+    ]
+
+
+@router.get("/{workspace_id}/mail/messages")
+async def list_mail_messages_route(
+    workspace_id: uuid.UUID,
+    folder: MailFolder = "inbox",
+    limit: int = 50,
+    account_id: uuid.UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> list[MailMessageSummaryResponse]:
+    await _require_membership(db, workspace_id, current_user.id)
+    account = None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    try:
+        messages = await list_workspace_messages(
+            db,
+            workspace_id,
+            mail_client,
+            folder=folder,
+            limit=max(1, min(limit, 100)),
+            account=account,
+        )
+    except MailAuthenticationError as exc:
+        logger.warning("Mail server rejected admin credentials listing messages: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
+    except (MailConnectionError, MailTimeoutError) as exc:
+        logger.warning("Mail server error listing messages: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected message list: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the message list request.",
+        ) from exc
+    return [_message_summary_response(item) for item in messages]
+
+
+@router.get("/{workspace_id}/mail/threads")
+async def list_mail_threads_route(
+    workspace_id: uuid.UUID,
+    folder: MailFolder = "inbox",
+    limit: int = 50,
+    account_id: uuid.UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> list[MailThreadPreviewResponse]:
+    await _require_membership(db, workspace_id, current_user.id)
+    account = None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    try:
+        previews = await list_workspace_thread_previews(
+            db,
+            workspace_id,
+            mail_client,
+            folder=folder,
+            limit=max(1, min(limit, 100)),
+            account=account,
+        )
+    except MailAuthenticationError as exc:
+        logger.warning("Mail server rejected admin credentials listing threads: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
+    except (MailConnectionError, MailTimeoutError) as exc:
+        logger.warning("Mail server error listing threads: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected thread list: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the thread list request.",
+        ) from exc
+    return [_thread_preview_response(item) for item in previews]
+
+
+@router.get("/{workspace_id}/mail/accounts/{account_id}/messages/{message_id}")
+async def get_mail_message_route(
+    workspace_id: uuid.UUID,
+    account_id: uuid.UUID,
+    message_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> MailMessageDetailResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    account = await _get_account_or_404(db, workspace_id, account_id)
+    try:
+        message = await get_workspace_message(account, message_id, mail_client)
+    except MailAuthenticationError as exc:
+        logger.warning("Mail server rejected admin credentials loading message %s: %s", message_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
+    except (MailConnectionError, MailTimeoutError) as exc:
+        logger.warning("Mail server error loading message %s: %s", message_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected message get %s: %s", message_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the message fetch request.",
+        ) from exc
+    return _message_detail_response(message)
+
+
+@router.patch("/{workspace_id}/mail/accounts/{account_id}/messages/{message_id}")
+async def update_mail_message_route(
+    workspace_id: uuid.UUID,
+    account_id: uuid.UUID,
+    message_id: str,
+    data: MailMessageUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> MailMessageDetailResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    account = await _get_account_or_404(db, workspace_id, account_id)
+    try:
+        message = await update_workspace_message(account, message_id, data, mail_client)
+    except MailAuthenticationError as exc:
+        logger.warning("Mail server rejected admin credentials updating message %s: %s", message_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
+    except (MailConnectionError, MailTimeoutError) as exc:
+        logger.warning("Mail server error updating message %s: %s", message_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected message update %s: %s", message_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the message update request.",
+        ) from exc
+    return _message_detail_response(message)
+
+
+@router.get("/{workspace_id}/mail/accounts/{account_id}/threads/{thread_id}")
+async def get_mail_thread_route(
+    workspace_id: uuid.UUID,
+    account_id: uuid.UUID,
+    thread_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> MailThreadResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    account = await _get_account_or_404(db, workspace_id, account_id)
+    try:
+        thread = await get_workspace_thread(account, thread_id, mail_client)
+    except MailAuthenticationError as exc:
+        logger.warning("Mail server rejected admin credentials loading thread %s: %s", thread_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
+    except (MailConnectionError, MailTimeoutError) as exc:
+        logger.warning("Mail server error loading thread %s: %s", thread_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected thread get %s: %s", thread_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the thread fetch request.",
+        ) from exc
+    return _thread_response(thread)
 
 
 @router.patch("/{workspace_id}/mail/accounts/{account_id}")
