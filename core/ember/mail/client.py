@@ -129,9 +129,7 @@ class StalwartMailClient(MailClient):
                 timeout=self._timeout,
                 transport=self._transport,
             ) as client:
-                response = await client.get(
-                    self._HEALTH_PATH, params={"limit": 1}, headers=headers
-                )
+                response = await client.get(self._HEALTH_PATH, params={"limit": 1}, headers=headers)
         except httpx.TimeoutException as exc:
             raise MailTimeoutError(
                 f"Mail server did not respond within {self._timeout}s at {self._base_url}"
@@ -150,9 +148,7 @@ class StalwartMailClient(MailClient):
             )
         if response.is_success:
             return True
-        raise MailClientError(
-            f"Unexpected response from mail server: HTTP {response.status_code}"
-        )
+        raise MailClientError(f"Unexpected response from mail server: HTTP {response.status_code}")
 
     async def _call_jmap(self, body: dict) -> dict:
         """POST a JMAP request envelope to Stalwart's management endpoint and
@@ -185,7 +181,7 @@ class StalwartMailClient(MailClient):
             )
         if not response.is_success:
             raise MailClientError(
-                f"Unexpected response from mail server: HTTP {response.status_code}"
+                f"""HTTP {response.status_code} URL: {response.request.url} Body: {response.text}"""
             )
         return response.json()
 
@@ -231,9 +227,7 @@ class StalwartMailClient(MailClient):
             "memberGroupIds": [],
         }
         body = {
-            "methodCalls": [
-                ["x:Account/set", {"create": {self._CREATE_KEY: create_fields}}, "c1"]
-            ],
+            "methodCalls": [["x:Account/set", {"create": {self._CREATE_KEY: create_fields}}, "c1"]],
             "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],
         }
 
