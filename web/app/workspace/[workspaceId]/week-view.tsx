@@ -381,7 +381,12 @@ export function WeekView({
                       <span className="week-event-title">{event.title}</span>
                       {height > 32 && (
                         <span className="week-event-time">
-                          {formatClock(event.start, time_format)}
+                          {formatClock(event.start, time_format)} – {formatClock(event.end, time_format)}
+                        </span>
+                      )}
+                      {height <= 32 && (
+                        <span className="week-event-time-small">
+                          {formatClock(event.start, time_format)} – {formatClock(event.end, time_format)}
                         </span>
                       )}
                     </div>
