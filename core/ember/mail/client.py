@@ -237,9 +237,29 @@ class StalwartMailClient(MailClient):
         domain_id = await self._resolve_domain_id(domain)
 
         create_fields = {
+            "@type": "User",
             "name": local_part,
             "domainId": domain_id,
-            "password": password,
+
+            "credentials": {
+                "@type": "Password",
+                "secret": password
+            },
+
+            "roles": {
+                "@type": "User"
+            },
+
+            "permissions": {
+                "@type": "Inherit"
+            },
+
+            "encryptionAtRest": {
+                "@type": "Disabled"
+            },
+
+            "aliases": [],
+            "memberGroupIds": [],
         }
         body = {
             "methodCalls": [["x:Account/set", {"create": {self._CREATE_KEY: create_fields}}, "c1"]],
