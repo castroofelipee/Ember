@@ -1449,6 +1449,21 @@
   font-size: 0.75rem;
 }
 
+.mail-message-meta-actions {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.mail-message-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #cfcfcf;
+  font-size: 0.74rem;
+}
+
 .mail-message-body {
   margin: 0;
   padding: 1rem;
@@ -1458,6 +1473,32 @@
   font-family: inherit;
   font-size: 0.92rem;
   line-height: 1.55;
+}
+
+.mail-message-body--html {
+  white-space: normal;
+  overflow: auto;
+  background: #ffffff;
+  color: #1f1f1f;
+}
+
+.mail-message-body--html a {
+  color: #2563eb;
+}
+
+.mail-message-body--html img {
+  max-width: 100%;
+  height: auto;
+}
+
+.mail-message-body--html table {
+  max-width: 100%;
+}
+
+.mail-message-body--html button,
+.mail-message-body--html a[style*="button" i],
+.mail-message-body--html a[class*="button" i] {
+  cursor: pointer;
 }
 
 .mail-empty-state {
@@ -1663,7 +1704,7 @@
   gap: 1.25rem;
   width: 16rem;
   flex-shrink: 0;
-  padding: 1rem;
+  padding: 1rem 1rem 0.5rem;
   background: #161616;
   border-right: 1px solid #2a2a2a;
   overflow-y: auto;
@@ -1746,7 +1787,6 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  margin-top: auto;
   padding: 0.6rem 0.85rem;
   border: 1px solid #2e2e2e;
   border-radius: 0.5rem;
@@ -1762,6 +1802,13 @@
 .sidebar-settings-button:hover {
   background: #262626;
   color: #f5f5f5;
+}
+
+.sidebar-rail-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .mini-calendar {

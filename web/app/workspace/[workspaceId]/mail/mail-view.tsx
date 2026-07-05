@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 import { useRequireAuth } from "@/lib/auth-client";
-import type { MailFolder, MailThread, MailThreadPreview } from "@/lib/types";
+import type { MailFolder, MailMessageDetail, MailThread, MailThreadPreview } from "@/lib/types";
 
 type Status = "loading" | "ready" | "not-found";
 
@@ -59,11 +59,22 @@ function displayAddress(address?: { email: string; name: string | null } | null)
   return address.name || address.email;
 }
 
-function displayParticipants(thread: MailThreadPreview): string {
-  if (thread.participants.length === 0) {
+function displayThreadSender(thread: MailThreadPreview, folder: MailFolder): string {
+  if (folder !== "sent") {
     return displayAddress(thread.latest_message.sender);
   }
-  return thread.participants.map(displayAddress).slice(0, 3).join(", ");
+
+  const recipients = thread.participants.filter(
+    (participant) =>
+      participant.email.toLowerCase() !== thread.account_email.toLowerCase() &&
+      participant.email.toLowerCase() !== thread.latest_message.sender?.email.toLowerCase(),
+  );
+
+  if (recipients.length === 0) {
+    return displayAddress(thread.latest_message.sender);
+  }
+
+  return recipients.map(displayAddress).slice(0, 3).join(", ");
 }
 
 function formatMailDate(value: string): string {
@@ -84,6 +95,88 @@ function stripHtml(value: string): string {
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function sanitizeMailHtml(value: string): string {
+  if (!value || typeof window === "undefined") return "";
+
+  const doc = new DOMParser().parseFromString(value, "text/html");
+  doc
+    .querySelectorAll("script, iframe, object, embed, form, input, textarea, select")
+    .forEach((element) => element.remove());
+
+  doc.querySelectorAll("*").forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      const name = attribute.name.toLowerCase();
+      const rawValue = attribute.value.trim();
+      const normalizedValue = rawValue.toLowerCase();
+
+      if (name.startsWith("on")) {
+        element.removeAttribute(attribute.name);
+        continue;
+      }
+
+      if ((name === "href" || name === "src") && normalizedValue) {
+        const isAllowed =
+          normalizedValue.startsWith("https:") ||
+          normalizedValue.startsWith("http:") ||
+          normalizedValue.startsWith("mailto:") ||
+          normalizedValue.startsWith("tel:") ||
+          (name === "src" && normalizedValue.startsWith("data:image/"));
+
+        if (!isAllowed) element.removeAttribute(attribute.name);
+      }
+    }
+
+    if (element instanceof HTMLAnchorElement) {
+      element.target = "_blank";
+      element.rel = "noreferrer noopener";
+    }
+  });
+
+  return doc.body.innerHTML;
+}
+
+function MailMessageCard({
+  message,
+  fallbackAccountEmail,
+}: {
+  message: MailMessageDetail;
+  fallbackAccountEmail: string;
+}) {
+  const sanitizedHtml = useMemo(() => sanitizeMailHtml(message.html_body), [message.html_body]);
+  const textBody = message.text_body || stripHtml(message.html_body) || message.preview;
+
+  return (
+    <section className="mail-message-card">
+      <div className="mail-message-meta">
+        <div className="mail-avatar">{displayAddress(message.sender).slice(0, 1).toUpperCase()}</div>
+        <div>
+          <p className="mail-message-from">{displayAddress(message.sender)}</p>
+          <p className="mail-message-to">
+            to {message.to.map(displayAddress).join(", ") || fallbackAccountEmail}
+          </p>
+        </div>
+        <div className="mail-message-meta-actions">
+          {message.has_attachment && (
+            <span className="mail-message-attachment">
+              <Paperclip size={14} />
+              Attachment
+            </span>
+          )}
+          <time>{formatMailDate(message.received_at)}</time>
+        </div>
+      </div>
+      {sanitizedHtml ? (
+        <div
+          className="mail-message-body mail-message-body--html"
+          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+        />
+      ) : (
+        <pre className="mail-message-body">{textBody}</pre>
+      )}
+    </section>
+  );
 }
 
 export function MailView() {
@@ -384,7 +477,7 @@ export function MailView() {
                     >
                       <Star size={16} />
                     </button>
-                    <span className="mail-thread-sender">{displayParticipants(item)}</span>
+                    <span className="mail-thread-sender">{displayThreadSender(item, folder)}</span>
                     <span className="mail-thread-content">
                       <span className="mail-thread-subject">
                         {item.subject || "(no subject)"}
@@ -439,26 +532,13 @@ export function MailView() {
                   </div>
 
                   <div className="mail-message-stack">
-                    {thread.messages.map((message) => {
-                      const body = message.text_body || stripHtml(message.html_body);
-                      return (
-                        <section key={message.id} className="mail-message-card">
-                          <div className="mail-message-meta">
-                            <div className="mail-avatar">
-                              {displayAddress(message.sender).slice(0, 1).toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="mail-message-from">{displayAddress(message.sender)}</p>
-                              <p className="mail-message-to">
-                                to {message.to.map(displayAddress).join(", ") || thread.account_email}
-                              </p>
-                            </div>
-                            <time>{formatMailDate(message.received_at)}</time>
-                          </div>
-                          <pre className="mail-message-body">{body || message.preview}</pre>
-                        </section>
-                      );
-                    })}
+                    {thread.messages.map((message) => (
+                      <MailMessageCard
+                        key={message.id}
+                        message={message}
+                        fallbackAccountEmail={thread.account_email}
+                      />
+                    ))}
                   </div>
                 </>
               )}

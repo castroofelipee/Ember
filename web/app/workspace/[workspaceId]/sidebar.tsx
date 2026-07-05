@@ -75,32 +75,34 @@ export function Sidebar({
         </>
       )}
 
-      <button
-        type="button"
-        className="sidebar-settings-button"
-        onClick={() => router.push("/calendars")}
-      >
-        <LayoutGrid size={18} />
-        {open && <span>Workspaces</span>}
-      </button>
+      <div className="sidebar-rail-actions">
+        <button
+          type="button"
+          className="sidebar-settings-button"
+          onClick={() => router.push("/calendars")}
+        >
+          <LayoutGrid size={18} />
+          {open && <span>Workspaces</span>}
+        </button>
 
-      <button
-        type="button"
-        className="sidebar-settings-button"
-        onClick={() => router.push(`/workspace/${workspaceId}/mail`)}
-      >
-        <Mail size={18} />
-        {open && <span>Mail</span>}
-      </button>
+        <button
+          type="button"
+          className="sidebar-settings-button"
+          onClick={() => router.push(`/workspace/${workspaceId}/mail`)}
+        >
+          <Mail size={18} />
+          {open && <span>Mail</span>}
+        </button>
 
-      <button
-        type="button"
-        className="sidebar-settings-button"
-        onClick={() => router.push("/settings")}
-      >
-        <Settings size={18} />
-        {open && <span>Settings</span>}
-      </button>
+        <button
+          type="button"
+          className="sidebar-settings-button"
+          onClick={() => router.push("/settings")}
+        >
+          <Settings size={18} />
+          {open && <span>Settings</span>}
+        </button>
+      </div>
     </aside>
   );
 }
