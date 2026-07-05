@@ -80,20 +80,26 @@ def test_mail_account_is_a_value() -> None:
 
 
 async def test_health_check_success_sends_bearer_and_returns_true() -> None:
-    seen: dict[str, str | None] = {}
+    seen: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
+        seen["method"] = request.method
         seen["authorization"] = request.headers.get("Authorization")
-        seen["accept"] = request.headers.get("Accept")
-        return httpx.Response(200, json={"items": [], "total": 0})
+        seen["body"] = json.loads(request.content)
+        return _jmap_response([["Core/echo", {"ember": "health_check"}, "c1"]])
 
     client = _client_with(handler)
 
     assert await client.health_check() is True
-    assert seen["path"] == "/api/principal"
+    # v0.16 management surface: POST the JMAP envelope to /jmap, not the old
+    # REST /api/principal (which no longer exists).
+    assert seen["path"] == "/jmap"
+    assert seen["method"] == "POST"
     assert seen["authorization"] == "Bearer secret-token"
-    assert seen["accept"] == "application/json"
+    [[method_name, _args, _tag]] = seen["body"]["methodCalls"]
+    assert method_name == "Core/echo"
+    assert seen["body"]["using"] == ["urn:ietf:params:jmap:core"]
 
 
 async def test_health_check_401_raises_authentication() -> None:
@@ -168,7 +174,7 @@ async def test_create_account_success_returns_dto_and_sends_bearer() -> None:
 
     assert account.id == "42"
     assert account.address == "ada@example.com"
-    assert seen["path"] == "/api"
+    assert seen["path"] == "/jmap"
     assert seen["authorization"] == "Bearer secret-token"
     assert seen["content_type"] == "application/json"
 
@@ -316,7 +322,7 @@ async def test_delete_account_success_sends_destroy() -> None:
 
     await _client_with(handler).delete_account("42")
 
-    assert seen["path"] == "/api"
+    assert seen["path"] == "/jmap"
     [[method_name, method_args, _tag]] = seen["body"]["methodCalls"]
     assert method_name == "x:Account/set"
     assert method_args == {"destroy": ["42"]}

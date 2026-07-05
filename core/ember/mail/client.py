@@ -81,18 +81,14 @@ class StalwartMailClient(MailClient):
     password rotation still raises `NotImplementedError`.
     """
 
-    # Lightweight admin-only endpoint: a successful GET proves both connectivity
-    # and that the token authenticates as an administrator. `limit=1` keeps the
-    # response minimal — we only care about the status code.
-    _HEALTH_PATH = "/api/principal"
-
-    # Account provisioning goes through Stalwart's current management surface:
-    # a single JMAP-envelope endpoint (`methodCalls` / `using`), not the legacy
-    # per-object REST routes `_HEALTH_PATH` uses. This is Stalwart's own admin
-    # object model (`x:Account/set`, capability `urn:stalwart:jmap`) — distinct
+    # Stalwart v0.16 removed the REST management API entirely: every management
+    # action (Account, Domain, …) is now a JMAP object served from the same
+    # `/jmap` endpoint as mail, reached with a `methodCalls` / `using` envelope
+    # (https://stalw.art/blog/stalwart-0-16/). Account provisioning uses the
+    # `x:Account/set` method under the `urn:stalwart:jmap` capability — distinct
     # from reading mail over JMAP (Email/Mailbox), which stays out of scope
-    # (docs/rfc/mail-module.md §5; verified against stalw.art/docs/ref/object/account/).
-    _JMAP_PATH = "/api"
+    # (docs/rfc/mail-module.md §5).
+    _JMAP_PATH = "/jmap"
     _CREATE_KEY = "new1"
 
     def __init__(
@@ -119,36 +115,17 @@ class StalwartMailClient(MailClient):
         return self._base_url
 
     async def health_check(self) -> bool:
-        headers = {
-            "Authorization": f"Bearer {self._admin_token}",
-            "Accept": "application/json",
+        # A JMAP `Core/echo` (RFC 8620 §4) round-trips through the exact `/jmap`
+        # endpoint account provisioning uses, proving both connectivity and that
+        # the token authenticates — without depending on any particular object
+        # existing. `_call_jmap` maps transport/timeout/401/403 to the right
+        # error subclasses; a well-formed 2xx here is enough to return True.
+        body = {
+            "methodCalls": [["Core/echo", {"ember": "health_check"}, "c1"]],
+            "using": ["urn:ietf:params:jmap:core"],
         }
-        try:
-            async with httpx.AsyncClient(
-                base_url=self._base_url,
-                timeout=self._timeout,
-                transport=self._transport,
-            ) as client:
-                response = await client.get(self._HEALTH_PATH, params={"limit": 1}, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise MailTimeoutError(
-                f"Mail server did not respond within {self._timeout}s at {self._base_url}"
-            ) from exc
-        except httpx.HTTPError as exc:
-            # Covers connection refused, DNS failures, and other transport errors.
-            raise MailConnectionError(
-                f"Could not reach mail server at {self._base_url}: {exc}"
-            ) from exc
-
-        # 401: token invalid/expired. 403: authenticated but not an admin. Both
-        # mean the configured credentials cannot manage the server.
-        if response.status_code in (401, 403):
-            raise MailAuthenticationError(
-                f"Mail server rejected admin credentials (HTTP {response.status_code})"
-            )
-        if response.is_success:
-            return True
-        raise MailClientError(f"Unexpected response from mail server: HTTP {response.status_code}")
+        await self._call_jmap(body)
+        return True
 
     async def _call_jmap(self, body: dict) -> dict:
         """POST a JMAP request envelope to Stalwart's management endpoint and
