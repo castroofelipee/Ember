@@ -945,6 +945,41 @@
   background: #1a1a1a;
 }
 
+.mail-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid #2e2e2e;
+  border-radius: 0.5rem;
+  background: #1a1a1a;
+}
+
+.mail-compose-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.mail-compose-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.mail-compose-subject,
+.mail-compose-body {
+  grid-column: 1 / -1;
+}
+
+.mail-compose-textarea {
+  min-height: 11rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
 .mail-account-status {
   display: inline-flex;
   align-items: center;
@@ -977,6 +1012,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+@media (max-width: 720px) {
+  .mail-compose-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mail-compose-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .link-button {

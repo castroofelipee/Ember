@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type SubmitEvent } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Ban, Check, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { Ban, Check, Pencil, Plus, RotateCcw, Send, Trash2, X } from "lucide-react";
 
 import { Label } from "@/components/ui/label";
 import {
@@ -13,7 +13,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequireAuth } from "@/lib/auth-client";
-import type { MailAccount, MailAccountStatus, MailDomain } from "@/lib/types";
+import type {
+  MailAccount,
+  MailAccountStatus,
+  MailDomain,
+  MailMessageSendResult,
+} from "@/lib/types";
 
 import { MailNav } from "../mail-nav";
 
@@ -31,8 +36,19 @@ function accountsUrl(workspaceId: string, accountId?: string): string {
   return accountId ? `${base}/${accountId}` : base;
 }
 
+function sendMessageUrl(workspaceId: string, accountId: string): string {
+  return `${accountsUrl(workspaceId, accountId)}/messages/send`;
+}
+
 function domainsUrl(workspaceId: string): string {
   return `/api/workspaces/${workspaceId}/mail/domains`;
+}
+
+function parseRecipients(value: string): string[] {
+  return value
+    .split(/[,\n]/)
+    .map((recipient) => recipient.trim())
+    .filter(Boolean);
 }
 
 export function MailAccountsView() {
@@ -61,6 +77,16 @@ export function MailAccountsView() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
+
+  const [composeAccountId, setComposeAccountId] = useState<string | null>(null);
+  const [composeTo, setComposeTo] = useState("");
+  const [composeCc, setComposeCc] = useState("");
+  const [composeBcc, setComposeBcc] = useState("");
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeText, setComposeText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendResult, setSendResult] = useState<MailMessageSendResult | null>(null);
 
   useEffect(() => {
     if (authStatus !== "ready") return;
@@ -95,6 +121,15 @@ export function MailAccountsView() {
 
   const domainName = (domainId: string) =>
     domains.find((d) => d.id === domainId)?.domain ?? domainId;
+
+  const activeAccounts = useMemo(
+    () => accounts.filter((account) => account.status === "active"),
+    [accounts],
+  );
+  const selectedComposeAccountId =
+    composeAccountId && activeAccounts.some((account) => account.id === composeAccountId)
+      ? composeAccountId
+      : (activeAccounts[0]?.id ?? null);
 
   const filteredAccounts = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -244,6 +279,48 @@ export function MailAccountsView() {
 
     setAccounts((prev) => prev.filter((a) => a.id !== accountId));
     setDeletingId(null);
+  }
+
+  async function handleSend(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedComposeAccountId) return;
+    const to = parseRecipients(composeTo);
+    if (to.length === 0 || !composeText.trim()) return;
+
+    setSending(true);
+    setSendError(null);
+    setSendResult(null);
+
+    const response = await fetch(sendMessageUrl(workspaceId, selectedComposeAccountId), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        to,
+        cc: parseRecipients(composeCc),
+        bcc: parseRecipients(composeBcc),
+        subject: composeSubject,
+        text: composeText,
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response
+        .json()
+        .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+        .catch(() => null);
+      setSendError(detail ?? "Could not send the message. Please try again.");
+      setSending(false);
+      return;
+    }
+
+    const result: MailMessageSendResult = await response.json();
+    setSendResult(result);
+    setComposeTo("");
+    setComposeCc("");
+    setComposeBcc("");
+    setComposeSubject("");
+    setComposeText("");
+    setSending(false);
   }
 
   if (authStatus !== "ready" || status === "loading") {
@@ -460,6 +537,129 @@ export function MailAccountsView() {
               {filteredAccounts.length === 0 && (
                 <p className="settings-section-hint">No accounts match these filters.</p>
               )}
+
+              <form className="mail-compose" onSubmit={handleSend}>
+                <div className="mail-compose-header">
+                  <div>
+                    <h2 className="settings-section-title">Compose</h2>
+                    <p className="settings-section-hint">
+                      Send a plain text message from an active workspace account.
+                    </p>
+                  </div>
+                  <button
+                    className="button-primary"
+                    type="submit"
+                    disabled={
+                      sending ||
+                      !selectedComposeAccountId ||
+                      parseRecipients(composeTo).length === 0 ||
+                      !composeText.trim()
+                    }
+                  >
+                    <Send size={16} />
+                    {sending ? "Sending..." : "Send"}
+                  </button>
+                </div>
+
+                {activeAccounts.length === 0 ? (
+                  <p className="settings-section-hint">
+                    Activate an account before sending mail.
+                  </p>
+                ) : (
+                  <div className="mail-compose-grid">
+                    <div className="form-field">
+                      <Label htmlFor="compose-from" className="form-label">
+                        From
+                      </Label>
+                      <Select
+                        value={selectedComposeAccountId ?? undefined}
+                        onValueChange={setComposeAccountId}
+                      >
+                        <SelectTrigger id="compose-from" className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activeAccounts.map((account) => (
+                            <SelectItem key={account.id} value={account.id}>
+                              {account.email}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="form-field">
+                      <Label htmlFor="compose-to" className="form-label">
+                        To
+                      </Label>
+                      <input
+                        className="form-input"
+                        id="compose-to"
+                        value={composeTo}
+                        onChange={(event) => setComposeTo(event.target.value)}
+                        placeholder="name@example.com, team@example.com"
+                      />
+                    </div>
+
+                    <div className="form-field">
+                      <Label htmlFor="compose-cc" className="form-label">
+                        Cc
+                      </Label>
+                      <input
+                        className="form-input"
+                        id="compose-cc"
+                        value={composeCc}
+                        onChange={(event) => setComposeCc(event.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-field">
+                      <Label htmlFor="compose-bcc" className="form-label">
+                        Bcc
+                      </Label>
+                      <input
+                        className="form-input"
+                        id="compose-bcc"
+                        value={composeBcc}
+                        onChange={(event) => setComposeBcc(event.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-field mail-compose-subject">
+                      <Label htmlFor="compose-subject" className="form-label">
+                        Subject
+                      </Label>
+                      <input
+                        className="form-input"
+                        id="compose-subject"
+                        value={composeSubject}
+                        onChange={(event) => setComposeSubject(event.target.value)}
+                        maxLength={998}
+                      />
+                    </div>
+
+                    <div className="form-field mail-compose-body">
+                      <Label htmlFor="compose-text" className="form-label">
+                        Message
+                      </Label>
+                      <textarea
+                        className="event-dialog-input mail-compose-textarea"
+                        id="compose-text"
+                        value={composeText}
+                        onChange={(event) => setComposeText(event.target.value)}
+                        rows={8}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {sendError && <p className="form-error form-error--summary">{sendError}</p>}
+                {sendResult && (
+                  <p className="auth-success">
+                    Message submitted ({sendResult.submission_id}).
+                  </p>
+                )}
+              </form>
 
               <form className="settings-grid" onSubmit={handleCreate}>
                 <div className="form-field">

@@ -9,7 +9,7 @@ import uuid
 
 from httpx import AsyncClient
 
-from ember.mail import MailAccountAlreadyExistsError, MailConnectionError
+from ember.mail import MailAccountAlreadyExistsError, MailConnectionError, MailSendResult
 from ember.main import app
 from ember.mail.client import MailAccount as ProvisionedAccount
 from ember.mail.client import MailClient, MailClientError
@@ -72,12 +72,18 @@ class FakeMailClient(MailClient):
     """In-memory `MailClient` double, mirroring the one in test_mail_service.py."""
 
     def __init__(
-        self, *, create_error: Exception | None = None, delete_error: Exception | None = None
+        self,
+        *,
+        create_error: Exception | None = None,
+        delete_error: Exception | None = None,
+        send_error: Exception | None = None,
     ) -> None:
         self._create_error = create_error
         self._delete_error = delete_error
+        self._send_error = send_error
         self.create_calls: list[tuple[str, str]] = []
         self.delete_calls: list[str] = []
+        self.send_calls: list[dict] = []
         self._next_id = 1
 
     async def health_check(self) -> bool:
@@ -101,9 +107,31 @@ class FakeMailClient(MailClient):
         if self._delete_error is not None:
             raise self._delete_error
 
+    async def send_message(self, **kwargs) -> MailSendResult:
+        self.send_calls.append(kwargs)
+        if self._send_error is not None:
+            raise self._send_error
+        return MailSendResult(email_id="email-1", submission_id="submission-1")
+
 
 def _use_mail_client(mail_client: MailClient) -> None:
     app.dependency_overrides[_require_mail_client] = lambda: mail_client
+
+
+async def _make_account(
+    client: AsyncClient,
+    token: str,
+    workspace_id: str,
+    domain_id: str,
+    *,
+    email: str = "ada@example.com",
+) -> dict:
+    response = await client.post(
+        _accounts_url(workspace_id),
+        headers=_auth_header(token),
+        json={"domain_id": domain_id, "email": email},
+    )
+    return response.json()
 
 
 # --- create -------------------------------------------------------------
@@ -256,6 +284,98 @@ async def test_create_account_in_others_workspace_returns_404(client: AsyncClien
     )
 
     assert response.status_code == 404
+
+
+# --- send ---------------------------------------------------------------
+
+
+def _send_url(workspace_id: str, account_id: str) -> str:
+    return f"{_accounts_url(workspace_id, account_id)}/messages/send"
+
+
+async def test_send_message_requires_auth(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    account = await _make_account(client, token, workspace_id, domain_id)
+
+    response = await client.post(
+        _send_url(workspace_id, account["id"]),
+        json={"to": ["grace@example.com"], "subject": "Hi", "text": "Hello"},
+    )
+
+    assert response.status_code == 401
+
+
+async def test_send_message_returns_submission_ids(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    mail_client = FakeMailClient()
+    _use_mail_client(mail_client)
+    account = await _make_account(client, token, workspace_id, domain_id)
+
+    response = await client.post(
+        _send_url(workspace_id, account["id"]),
+        headers=_auth_header(token),
+        json={
+            "to": ["Grace@Example.com"],
+            "cc": ["team@example.com"],
+            "subject": " Hello ",
+            "text": "Hello from Ember",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"email_id": "email-1", "submission_id": "submission-1"}
+    assert mail_client.send_calls == [
+        {
+            "account_id": account["provider_account_id"],
+            "from_address": "ada@example.com",
+            "to": ["grace@example.com"],
+            "cc": ["team@example.com"],
+            "bcc": [],
+            "subject": "Hello",
+            "text": "Hello from Ember",
+        }
+    ]
+
+
+async def test_send_message_in_others_workspace_returns_404(client: AsyncClient) -> None:
+    token_a = await _signup(client)
+    token_b = await _signup_second_user(client, token_a)
+    workspace_id = await _make_workspace(client, token_a)
+    domain_id = await _make_domain(client, token_a, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    account = await _make_account(client, token_a, workspace_id, domain_id)
+
+    response = await client.post(
+        _send_url(workspace_id, account["id"]),
+        headers=_auth_header(token_b),
+        json={"to": ["grace@example.com"], "subject": "Hi", "text": "Hello"},
+    )
+
+    assert response.status_code == 404
+
+
+async def test_send_message_provider_rejection_returns_502(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    mail_client = FakeMailClient()
+    _use_mail_client(mail_client)
+    account = await _make_account(client, token, workspace_id, domain_id)
+    _use_mail_client(FakeMailClient(send_error=MailClientError("submission rejected")))
+
+    response = await client.post(
+        _send_url(workspace_id, account["id"]),
+        headers=_auth_header(token),
+        json={"to": ["grace@example.com"], "subject": "Hi", "text": "Hello"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Mail server rejected the send request."
 
 
 # --- list -----------------------------------------------------------------

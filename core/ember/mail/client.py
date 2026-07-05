@@ -13,6 +13,7 @@ backend so far. Password rotation remains an unimplemented stub.
 from argon2 import _password_hasher
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from collections.abc import Sequence
 
 import httpx
 
@@ -57,6 +58,12 @@ class MailAccount:
     address: str
 
 
+@dataclass(frozen=True)
+class MailSendResult:
+    email_id: str
+    submission_id: str
+
+
 class MailClient(ABC):
     """Abstraction over a mail server's management surface. Only account
     lifecycle is modeled for now; message read/send (JMAP) comes later."""
@@ -81,6 +88,20 @@ class MailClient(ABC):
     async def delete_account(self, account_id: str) -> None:
         """Permanently remove an account and its mailboxes."""
 
+    @abstractmethod
+    async def send_message(
+        self,
+        *,
+        account_id: str,
+        from_address: str,
+        to: Sequence[str],
+        subject: str,
+        text: str,
+        cc: Sequence[str] = (),
+        bcc: Sequence[str] = (),
+    ) -> MailSendResult:
+        """Create and submit a text email through the provider."""
+
 
 class StalwartMailClient(MailClient):
     """`MailClient` backed by a Stalwart mail server (docs/rfc/mail-module.md
@@ -102,6 +123,8 @@ class StalwartMailClient(MailClient):
     _JMAP_PATH = "/jmap"
     _CREATE_KEY = "new1"
     _PASSWORD_CREDENTIAL_KEY = "0"
+    _EMAIL_CREATE_KEY = "email1"
+    _SUBMISSION_CREATE_KEY = "submission1"
 
     def __init__(
         self,
@@ -191,6 +214,25 @@ class StalwartMailClient(MailClient):
                 f"({arguments.get('description', 'no description')})"
             )
         return arguments
+
+    @staticmethod
+    def _unwrap_tagged_response(response_body: dict, tag: str, method_name: str) -> dict:
+        method_responses = response_body.get("methodResponses") or []
+        for response in method_responses:
+            name, arguments, response_tag = response
+            if response_tag != tag:
+                continue
+            if name == "error":
+                raise MailClientError(
+                    f"Mail server rejected {method_name}: {arguments.get('type')} "
+                    f"({arguments.get('description', 'no description')})"
+                )
+            if name != method_name:
+                raise MailClientError(
+                    f"Mail server returned {name} for {method_name} tag {tag}"
+                )
+            return arguments
+        raise MailClientError(f"Mail server returned no {method_name} response for tag {tag}")
 
     async def _resolve_domain_id(self, domain: str) -> str:
         """Look up the mail server's opaque Id for a Domain by its name.
@@ -312,3 +354,147 @@ class StalwartMailClient(MailClient):
                 f"Mail server response for x:Account/set had neither destroyed nor "
                 f"notDestroyed for {account_id!r}"
             )
+
+    async def _resolve_mailbox_ids_by_role(
+        self, account_id: str, roles: Sequence[str]
+    ) -> dict[str, str]:
+        body = {
+            "methodCalls": [["Mailbox/get", {"accountId": account_id, "ids": None}, "c1"]],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        arguments = self._unwrap_response(await self._call_jmap(body), "Mailbox/get")
+        wanted = set(roles)
+        found: dict[str, str] = {}
+        for mailbox in arguments.get("list") or []:
+            role = mailbox.get("role")
+            if role in wanted and role not in found:
+                found[role] = str(mailbox["id"])
+        missing = wanted - set(found)
+        if missing:
+            raise MailClientError(
+                f"Mail server account {account_id!r} is missing mailbox role(s): "
+                f"{', '.join(sorted(missing))}"
+            )
+        return found
+
+    async def _resolve_identity_id(self, account_id: str, from_address: str) -> str:
+        body = {
+            "methodCalls": [["Identity/get", {"accountId": account_id, "ids": None}, "c1"]],
+            "using": [
+                "urn:ietf:params:jmap:core",
+                "urn:ietf:params:jmap:mail",
+                "urn:ietf:params:jmap:submission",
+            ],
+        }
+        arguments = self._unwrap_response(await self._call_jmap(body), "Identity/get")
+        identities = arguments.get("list") or []
+        for identity in identities:
+            if str(identity.get("email", "")).lower() == from_address.lower():
+                return str(identity["id"])
+        if identities:
+            return str(identities[0]["id"])
+        raise MailClientError(
+            f"Mail server account {account_id!r} has no sending identity configured"
+        )
+
+    async def send_message(
+        self,
+        *,
+        account_id: str,
+        from_address: str,
+        to: Sequence[str],
+        subject: str,
+        text: str,
+        cc: Sequence[str] = (),
+        bcc: Sequence[str] = (),
+    ) -> MailSendResult:
+        mailboxes = await self._resolve_mailbox_ids_by_role(account_id, ("drafts", "sent"))
+        identity_id = await self._resolve_identity_id(account_id, from_address)
+
+        def addresses(values: Sequence[str]) -> list[dict[str, str]]:
+            return [{"email": value} for value in values]
+
+        draft_id = mailboxes["drafts"]
+        sent_id = mailboxes["sent"]
+        create_email = {
+            "mailboxIds": {draft_id: True},
+            "keywords": {"$draft": True},
+            "from": [{"email": from_address}],
+            "to": addresses(to),
+            "subject": subject,
+            "bodyValues": {"body": {"value": text, "charset": "utf-8"}},
+            "textBody": [{"partId": "body", "type": "text/plain"}],
+        }
+        if cc:
+            create_email["cc"] = addresses(cc)
+        if bcc:
+            create_email["bcc"] = addresses(bcc)
+
+        body = {
+            "methodCalls": [
+                [
+                    "Email/set",
+                    {"accountId": account_id, "create": {self._EMAIL_CREATE_KEY: create_email}},
+                    "c1",
+                ],
+                [
+                    "EmailSubmission/set",
+                    {
+                        "accountId": account_id,
+                        "create": {
+                            self._SUBMISSION_CREATE_KEY: {
+                                "emailId": f"#{self._EMAIL_CREATE_KEY}",
+                                "identityId": identity_id,
+                            }
+                        },
+                        "onSuccessUpdateEmail": {
+                            f"#{self._EMAIL_CREATE_KEY}": {
+                                f"mailboxIds/{draft_id}": None,
+                                f"mailboxIds/{sent_id}": True,
+                                "keywords/$draft": None,
+                            }
+                        },
+                    },
+                    "c2",
+                ],
+            ],
+            "using": [
+                "urn:ietf:params:jmap:core",
+                "urn:ietf:params:jmap:mail",
+                "urn:ietf:params:jmap:submission",
+            ],
+        }
+        response_body = await self._call_jmap(body)
+
+        email_args = self._unwrap_tagged_response(response_body, "c1", "Email/set")
+        not_created = email_args.get("notCreated") or {}
+        if self._EMAIL_CREATE_KEY in not_created:
+            error = not_created[self._EMAIL_CREATE_KEY]
+            raise MailClientError(
+                f"Mail server refused to create outgoing email: "
+                f"{error.get('type')} ({error.get('description', 'no description')})"
+            )
+        created_email = (email_args.get("created") or {}).get(self._EMAIL_CREATE_KEY)
+        if created_email is None:
+            raise MailClientError("Mail server did not return created Email id")
+
+        submission_args = self._unwrap_tagged_response(
+            response_body, "c2", "EmailSubmission/set"
+        )
+        not_submitted = submission_args.get("notCreated") or {}
+        if self._SUBMISSION_CREATE_KEY in not_submitted:
+            error = not_submitted[self._SUBMISSION_CREATE_KEY]
+            raise MailClientError(
+                f"Mail server refused to submit outgoing email: "
+                f"{error.get('type')} ({error.get('description', 'no description')})"
+            )
+        created_submission = (submission_args.get("created") or {}).get(
+            self._SUBMISSION_CREATE_KEY
+        )
+        if created_submission is None:
+            raise MailClientError("Mail server did not return created EmailSubmission id")
+
+        return MailSendResult(
+            email_id=str(created_email["id"]),
+            submission_id=str(created_submission["id"]),
+        )

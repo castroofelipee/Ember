@@ -80,6 +80,11 @@ export type MailAccount = {
   created_at: string;
 };
 
+export type MailMessageSendResult = {
+  email_id: string;
+  submission_id: string;
+};
+
 export type TimeFormat = "12h" | "24h";
 
 export type Preferences = {

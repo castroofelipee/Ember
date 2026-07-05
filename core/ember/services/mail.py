@@ -10,6 +10,7 @@ from ember.models import MailAccount, MailDomain
 from ember.schemas.mail import (
     MailAccountRegisterRequest,
     MailAccountUpdateRequest,
+    MailMessageSendRequest,
     MailDomainCreateRequest,
     MailDomainUpdateRequest,
     email_domain,
@@ -45,6 +46,10 @@ class EmailAlreadyExistsError(Exception):
     rejects a registration — Ember already has a row for this address even
     though the mail server accepted the create call (mirrors
     `DomainAlreadyExistsError` / `EmailAlreadyRegisteredError` in services/auth.py)."""
+
+
+class MailAccountNotActiveError(Exception):
+    """The account exists locally but should not be used to send mail."""
 
 
 async def create_mail_domain(
@@ -224,3 +229,19 @@ async def delete_mail_account(
     await mail_client.delete_account(account.provider_account_id)
     await session.delete(account)
     await session.flush()
+
+
+async def send_mail_message(
+    account: MailAccount, data: MailMessageSendRequest, mail_client: MailClient
+):
+    if account.status.value != "active":
+        raise MailAccountNotActiveError()
+    return await mail_client.send_message(
+        account_id=account.provider_account_id,
+        from_address=account.email,
+        to=data.to,
+        cc=data.cc,
+        bcc=data.bcc,
+        subject=data.subject,
+        text=data.text,
+    )

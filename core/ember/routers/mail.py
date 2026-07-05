@@ -24,12 +24,15 @@ from ember.schemas.mail import (
     MailDomainCreateRequest,
     MailDomainResponse,
     MailDomainUpdateRequest,
+    MailMessageSendRequest,
+    MailMessageSendResponse,
 )
 from ember.services.mail import (
     DomainAlreadyExistsError,
     DomainHasAccountsError,
     EmailAlreadyExistsError,
     EmailDomainMismatchError,
+    MailAccountNotActiveError,
     MailDomainNotFoundError,
     create_mail_domain,
     delete_mail_account,
@@ -39,6 +42,7 @@ from ember.services.mail import (
     list_mail_accounts,
     list_mail_domains,
     register_mail_account,
+    send_mail_message,
     update_mail_account,
     update_mail_domain,
 )
@@ -278,3 +282,47 @@ async def delete_mail_account_route(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Mail server rejected the account deletion request.",
         ) from exc
+
+
+@router.post("/{workspace_id}/mail/accounts/{account_id}/messages/send")
+async def send_mail_message_route(
+    workspace_id: uuid.UUID,
+    account_id: uuid.UUID,
+    data: MailMessageSendRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> MailMessageSendResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    account = await _get_account_or_404(db, workspace_id, account_id)
+    try:
+        result = await send_mail_message(account, data, mail_client)
+    except MailAccountNotActiveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This mail account is not active.",
+        ) from exc
+    except MailAuthenticationError as exc:
+        logger.warning(
+            "Mail server rejected admin credentials sending from %s: %s", account.email, exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
+    except (MailConnectionError, MailTimeoutError) as exc:
+        logger.warning("Mail server error sending from %s: %s", account.email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected send from %s: %s", account.email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the send request.",
+        ) from exc
+    return MailMessageSendResponse(
+        email_id=result.email_id,
+        submission_id=result.submission_id,
+    )

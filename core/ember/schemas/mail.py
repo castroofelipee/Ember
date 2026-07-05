@@ -122,6 +122,43 @@ class MailAccountResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def _normalize_email_address(value: str) -> str:
+    normalized = value.strip().lower()
+    if not _EMAIL_RE.match(normalized):
+        raise ValueError("email must be a valid address like user@example.com")
+    return normalized
+
+
+def _normalize_email_list(values: list[str]) -> list[str]:
+    normalized = [_normalize_email_address(value) for value in values]
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("email recipients must be unique")
+    return normalized
+
+
+class MailMessageSendRequest(BaseModel):
+    to: list[str] = Field(min_length=1, max_length=100)
+    cc: list[str] = Field(default_factory=list, max_length=100)
+    bcc: list[str] = Field(default_factory=list, max_length=100)
+    subject: str = Field(default="", max_length=998)
+    text: str = Field(min_length=1, max_length=1_000_000)
+
+    @field_validator("to", "cc", "bcc")
+    @classmethod
+    def normalize_recipients(cls, value: list[str]) -> list[str]:
+        return _normalize_email_list(value)
+
+    @field_validator("subject")
+    @classmethod
+    def normalize_subject(cls, value: str) -> str:
+        return value.strip()
+
+
+class MailMessageSendResponse(BaseModel):
+    email_id: str
+    submission_id: str
+
+
 __all__ = [
     "MailAccountRegisterRequest",
     "MailAccountResponse",
@@ -129,5 +166,7 @@ __all__ = [
     "MailDomainCreateRequest",
     "MailDomainResponse",
     "MailDomainUpdateRequest",
+    "MailMessageSendRequest",
+    "MailMessageSendResponse",
     "email_domain",
 ]

@@ -448,3 +448,114 @@ async def test_delete_account_timeout_raises_timeout() -> None:
 
     with pytest.raises(MailTimeoutError):
         await _client_with(handler).delete_account("42")
+
+
+async def test_send_message_creates_email_and_submission() -> None:
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        method = body["methodCalls"][0][0]
+        if method == "Mailbox/get":
+            return _jmap_response(
+                [
+                    [
+                        "Mailbox/get",
+                        {
+                            "list": [
+                                {"id": "drafts-id", "role": "drafts"},
+                                {"id": "sent-id", "role": "sent"},
+                            ]
+                        },
+                        "c1",
+                    ]
+                ]
+            )
+        if method == "Identity/get":
+            return _jmap_response(
+                [
+                    [
+                        "Identity/get",
+                        {"list": [{"id": "identity-id", "email": "ada@example.com"}]},
+                        "c1",
+                    ]
+                ]
+            )
+        return _jmap_response(
+            [
+                ["Email/set", {"created": {"email1": {"id": "email-id"}}}, "c1"],
+                [
+                    "EmailSubmission/set",
+                    {"created": {"submission1": {"id": "submission-id"}}},
+                    "c2",
+                ],
+            ]
+        )
+
+    result = await _client_with(handler).send_message(
+        account_id="account-id",
+        from_address="ada@example.com",
+        to=["grace@example.com"],
+        cc=["team@example.com"],
+        subject="Status",
+        text="Hello",
+    )
+
+    assert result.email_id == "email-id"
+    assert result.submission_id == "submission-id"
+    assert calls[0]["methodCalls"][0] == [
+        "Mailbox/get",
+        {"accountId": "account-id", "ids": None},
+        "c1",
+    ]
+    assert calls[1]["methodCalls"][0] == [
+        "Identity/get",
+        {"accountId": "account-id", "ids": None},
+        "c1",
+    ]
+
+    [[email_method, email_args, email_tag], [submission_method, submission_args, submission_tag]] = (
+        calls[2]["methodCalls"]
+    )
+    assert email_method == "Email/set"
+    assert email_tag == "c1"
+    created_email = email_args["create"]["email1"]
+    assert created_email["mailboxIds"] == {"drafts-id": True}
+    assert created_email["keywords"] == {"$draft": True}
+    assert created_email["from"] == [{"email": "ada@example.com"}]
+    assert created_email["to"] == [{"email": "grace@example.com"}]
+    assert created_email["cc"] == [{"email": "team@example.com"}]
+    assert created_email["subject"] == "Status"
+    assert created_email["bodyValues"] == {"body": {"value": "Hello", "charset": "utf-8"}}
+    assert created_email["textBody"] == [{"partId": "body", "type": "text/plain"}]
+
+    assert submission_method == "EmailSubmission/set"
+    assert submission_tag == "c2"
+    assert submission_args["create"] == {
+        "submission1": {"emailId": "#email1", "identityId": "identity-id"}
+    }
+    assert submission_args["onSuccessUpdateEmail"] == {
+        "#email1": {
+            "mailboxIds/drafts-id": None,
+            "mailboxIds/sent-id": True,
+            "keywords/$draft": None,
+        }
+    }
+
+
+async def test_send_message_missing_mailbox_role_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [["Mailbox/get", {"list": [{"id": "drafts-id", "role": "drafts"}]}, "c1"]]
+        )
+
+    with pytest.raises(MailClientError) as exc_info:
+        await _client_with(handler).send_message(
+            account_id="account-id",
+            from_address="ada@example.com",
+            to=["grace@example.com"],
+            subject="Status",
+            text="Hello",
+        )
+    assert "sent" in str(exc_info.value)

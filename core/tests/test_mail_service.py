@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ember.mail import MailAccountAlreadyExistsError, MailClientError, MailConnectionError
 from ember.mail.client import MailAccount as ProvisionedAccount
+from ember.mail.client import MailSendResult
 from ember.mail.client import MailClient
 from ember.models import (
     MailAccount,
@@ -83,6 +84,9 @@ class FakeMailClient(MailClient):
         self.delete_calls.append(account_id)
         if self._delete_error is not None:
             raise self._delete_error
+
+    async def send_message(self, **kwargs) -> MailSendResult:
+        return MailSendResult(email_id="email-1", submission_id="submission-1")
 
 
 async def _create_user(db_session: AsyncSession, *, inviter_id=None, **overrides: object):
