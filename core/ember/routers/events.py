@@ -10,11 +10,13 @@ from ember.models import User
 from ember.schemas.events import EventCreateRequest, EventResponse
 from ember.services.calendars import get_calendar
 from ember.services.events import (
+    bulk_delete_recurring_event,
     create_event,
     delete_event,
     get_event_or_none,
     list_events_in_range,
 )
+from ember.services.events import DeleteMode
 from ember.services.workspaces import NotAWorkspaceMemberError, assert_workspace_member
 
 router = APIRouter(prefix="/api", tags=["Events"])
@@ -74,3 +76,24 @@ async def delete_event_route(
         raise _NOT_FOUND
     await _require_membership(db, calendar.workspace_id, current_user.id)
     await delete_event(db, event)
+
+
+@router.delete("/events/{event_id}/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def bulk_delete_event_route(
+    event_id: uuid.UUID,
+    mode: DeleteMode = Query(..., description="Delete mode: 'this_only' or 'this_and_future'"),
+    occurrence_start: datetime | None = Query(
+        default=None, description="Start timestamp of the selected occurrence."
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    event = await get_event_or_none(db, event_id)
+    if event is None:
+        raise _NOT_FOUND
+    calendar = await get_calendar(db, event.calendar_id)
+    if calendar is None:
+        raise _NOT_FOUND
+    await _require_membership(db, calendar.workspace_id, current_user.id)
+
+    await bulk_delete_recurring_event(db, event.id, mode, occurrence_start)

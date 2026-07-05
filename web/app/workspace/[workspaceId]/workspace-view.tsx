@@ -13,6 +13,7 @@ import {
 } from "@/lib/types";
 
 import { EventDetail } from "./event-detail";
+import { EventDeleteDialog } from "./event-delete-dialog";
 import { EventDialog } from "./event-dialog";
 import { Sidebar } from "./sidebar";
 import { CalendarView, WeekView, type WeekEvent } from "./week-view";
@@ -21,6 +22,7 @@ type Status = "loading" | "ready" | "not-found";
 
 type DialogState = { open: false } | { open: true; initialStart?: Date };
 type SelectedEvent = { event: WeekEvent; anchor: DOMRect };
+type DeleteDialogState = { open: false } | { open: true; event: WeekEvent };
 
 export function WorkspaceView() {
   const router = useRouter();
@@ -36,6 +38,7 @@ export function WorkspaceView() {
   const [events, setEvents] = useState<WeekEvent[]>([]);
   const [dialog, setDialog] = useState<DialogState>({ open: false });
   const [selected, setSelected] = useState<SelectedEvent | null>(null);
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({ open: false });
   const [deleting, setDeleting] = useState(false);
   // Remember the span currently on screen so we can refetch after creating.
   const rangeRef = useRef<{ start: Date; end: Date } | null>(null);
@@ -97,25 +100,69 @@ export function WorkspaceView() {
     if (rangeRef.current) void loadEvents(rangeRef.current.start, rangeRef.current.end);
   }, [loadEvents]);
 
-  const handleDelete = useCallback(async () => {
-    if (!selected) return;
-    if (selected.event.recurrence && !window.confirm("Delete this event and all its repeats?")) {
-      return;
-    }
-    setDeleting(true);
-    try {
-      const response = await fetch(`/api/events/${selected.event.id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (response.ok) {
-        setSelected(null);
-        refetchEvents();
+  const deleteSelectedEvent = useCallback(
+    async (event: WeekEvent) => {
+      setDeleting(true);
+      try {
+        const response = await fetch(`/api/events/${event.id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (response.ok) {
+          setSelected(null);
+          setDeleteDialog({ open: false });
+          refetchEvents();
+        }
+      } finally {
+        setDeleting(false);
       }
-    } finally {
-      setDeleting(false);
-    }
-  }, [selected, accessToken, refetchEvents]);
+    },
+    [accessToken, refetchEvents],
+  );
+
+  const deleteRecurringEvent = useCallback(
+    async (event: WeekEvent, mode: "this_only" | "this_and_future") => {
+      setDeleting(true);
+      try {
+        const params = new URLSearchParams({
+          mode,
+          occurrence_start: event.start.toISOString(),
+        });
+        const response = await fetch(`/api/events/${event.id}/bulk-delete?${params.toString()}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (response.ok) {
+          setSelected(null);
+          setDeleteDialog({ open: false });
+          refetchEvents();
+        }
+      } finally {
+        setDeleting(false);
+      }
+    },
+    [accessToken, refetchEvents],
+  );
+
+  const openDeleteDialog = useCallback(() => {
+    if (!selected) return;
+    setDeleteDialog({ open: true, event: selected.event });
+  }, [selected]);
+
+  const handleDeleteAll = useCallback(async () => {
+    if (!deleteDialog.open) return;
+    await deleteSelectedEvent(deleteDialog.event);
+  }, [deleteDialog, deleteSelectedEvent]);
+
+  const handleDeleteThis = useCallback(async () => {
+    if (!deleteDialog.open) return;
+    await deleteRecurringEvent(deleteDialog.event, "this_only");
+  }, [deleteDialog, deleteRecurringEvent]);
+
+  const handleDeleteThisAndFuture = useCallback(async () => {
+    if (!deleteDialog.open) return;
+    await deleteRecurringEvent(deleteDialog.event, "this_and_future");
+  }, [deleteDialog, deleteRecurringEvent]);
 
   useEffect(() => {
     if (authStatus !== "ready") return;
@@ -209,7 +256,18 @@ export function WorkspaceView() {
           timeFormat={preferences.time_format}
           deleting={deleting}
           onClose={() => setSelected(null)}
-          onDelete={handleDelete}
+          onDelete={openDeleteDialog}
+        />
+      )}
+
+      {deleteDialog.open && (
+        <EventDeleteDialog
+          event={deleteDialog.event}
+          deleting={deleting}
+          onClose={() => setDeleteDialog({ open: false })}
+          onDeleteAll={handleDeleteAll}
+          onDeleteThis={handleDeleteThis}
+          onDeleteThisAndFuture={handleDeleteThisAndFuture}
         />
       )}
 

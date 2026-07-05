@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import Enum
 
 from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 from sqlalchemy import and_, or_, select
@@ -13,6 +14,80 @@ from ember.schemas.events import EventCreateRequest
 _FREQ_MAP = {"DAILY": DAILY, "WEEKLY": WEEKLY, "MONTHLY": MONTHLY, "YEARLY": YEARLY}
 # 0=Monday..6=Sunday, matching RecurrenceRule.by_weekday.
 _WEEKDAY_MAP = [MO, TU, WE, TH, FR, SA, SU]
+
+
+class DeleteMode(Enum):
+    THIS_ONLY = "this_only"
+    THIS_AND_FUTURE = "this_and_future"
+
+
+def _recurrence_kwargs(event: Event) -> dict:
+    kwargs: dict = {
+        "freq": _FREQ_MAP[event.recurrence_freq],
+        "interval": event.recurrence_interval or 1,
+        "dtstart": event.start_at,
+    }
+    if event.recurrence_by_weekday:
+        kwargs["byweekday"] = [_WEEKDAY_MAP[day] for day in event.recurrence_by_weekday]
+    if event.recurrence_count:
+        kwargs["count"] = event.recurrence_count
+    elif event.recurrence_until:
+        kwargs["until"] = event.recurrence_until
+    return kwargs
+
+
+def _count_occurrences_before(event: Event, cutoff: datetime) -> int:
+    kwargs = _recurrence_kwargs(event)
+    kwargs["until"] = cutoff - timedelta(microseconds=1)
+    return sum(1 for _ in rrule(**kwargs))
+
+
+async def bulk_delete_recurring_event(
+    session: AsyncSession,
+    master_event_id: uuid.UUID,
+    mode: DeleteMode,
+    occurrence_start: datetime | None = None,
+) -> None:
+    """Delete recurring events with Google Calendar-like behavior.
+
+    mode="this_only": delete only the selected instance.
+    mode="this_and_future": delete this event and all future occurrences.
+    """
+    master = await get_event_or_none(session, master_event_id)
+    if not master or not master.recurrence_freq:
+        return
+
+    if occurrence_start is None:
+        await session.delete(master)
+        await session.flush()
+        return
+
+    if mode == DeleteMode.THIS_ONLY:
+        exdates = list(master.recurrence_exdates or [])
+        if occurrence_start not in exdates:
+            exdates.append(occurrence_start)
+            exdates.sort()
+        master.recurrence_exdates = exdates
+        await session.flush()
+        return
+
+    if occurrence_start <= master.start_at:
+        await session.delete(master)
+        await session.flush()
+        return
+
+    if master.recurrence_count is not None:
+        count = _count_occurrences_before(master, occurrence_start)
+        if count <= 0:
+            await session.delete(master)
+        else:
+            master.recurrence_count = count
+    else:
+        new_until = occurrence_start - timedelta(microseconds=1)
+        if master.recurrence_until is None or new_until < master.recurrence_until:
+            master.recurrence_until = new_until
+
+    await session.flush()
 
 
 @dataclass
@@ -85,26 +160,19 @@ def _expand_occurrences(
 ) -> list[EventOccurrence]:
     """Instances of a recurring `event` that overlap [range_start, range_end)."""
     duration = event.end_at - event.start_at
-    kwargs: dict = {
-        "freq": _FREQ_MAP[event.recurrence_freq],
-        "interval": event.recurrence_interval or 1,
-        "dtstart": event.start_at,
-    }
-    if event.recurrence_by_weekday:
-        kwargs["byweekday"] = [_WEEKDAY_MAP[day] for day in event.recurrence_by_weekday]
-    if event.recurrence_count:
-        kwargs["count"] = event.recurrence_count
-    elif event.recurrence_until:
-        kwargs["until"] = event.recurrence_until
-    else:
+    kwargs = _recurrence_kwargs(event)
+    if "count" not in kwargs and "until" not in kwargs:
         # Unbounded ("never ends") — cap the expansion at the query window so
         # it doesn't run away generating occurrences past what's on screen.
         kwargs["until"] = range_end
 
+    exdates = set(event.recurrence_exdates or [])
     occurrences: list[EventOccurrence] = []
     for occ_start in rrule(**kwargs):
         if occ_start >= range_end:
             break
+        if occ_start in exdates:
+            continue
         occ_end = occ_start + duration
         if occ_end > range_start:
             occurrences.append(
