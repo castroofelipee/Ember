@@ -453,3 +453,75 @@ async def test_delete_recurring_event_removes_whole_series(client: AsyncClient) 
         params={"start": "2026-06-01T00:00:00+00:00", "end": "2026-08-01T00:00:00+00:00"},
     )
     assert listed.json() == []
+
+
+async def test_bulk_delete_recurring_event_removes_only_selected_occurrence(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "count": 5}),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.delete(
+        f"/api/events/{event_id}/bulk-delete",
+        headers=_auth_header(token),
+        params={
+            "mode": "this_only",
+            "occurrence_start": "2026-07-02T09:00:00+00:00",
+        },
+    )
+    assert response.status_code == 204
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-06-01T00:00:00+00:00", "end": "2026-08-01T00:00:00+00:00"},
+    )
+    starts = [datetime.fromisoformat(e["start_at"]) for e in listed.json()]
+    assert starts == [
+        datetime.fromisoformat("2026-07-01T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-03T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-04T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-05T09:00:00+00:00"),
+    ]
+
+
+async def test_bulk_delete_recurring_event_truncates_future_occurrences(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "count": 5}),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.delete(
+        f"/api/events/{event_id}/bulk-delete",
+        headers=_auth_header(token),
+        params={
+            "mode": "this_and_future",
+            "occurrence_start": "2026-07-03T09:00:00+00:00",
+        },
+    )
+    assert response.status_code == 204
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-06-01T00:00:00+00:00", "end": "2026-08-01T00:00:00+00:00"},
+    )
+    starts = [datetime.fromisoformat(e["start_at"]) for e in listed.json()]
+    assert starts == [
+        datetime.fromisoformat("2026-07-01T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-02T09:00:00+00:00"),
+    ]

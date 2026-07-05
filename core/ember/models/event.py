@@ -49,6 +49,9 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # occurrence-count limit, or a hard end date. Neither set means "never ends".
     recurrence_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     recurrence_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recurrence_exdates: Mapped[list[datetime] | None] = mapped_column(
+        ARRAY(DateTime(timezone=True)), nullable=True
+    )
 
     attendees: Mapped[list["EventAttendee"]] = relationship(
         back_populates="event",
