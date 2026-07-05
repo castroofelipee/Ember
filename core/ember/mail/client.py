@@ -237,16 +237,9 @@ class StalwartMailClient(MailClient):
         domain_id = await self._resolve_domain_id(domain)
 
         create_fields = {
-            "@type": "User",
             "name": local_part,
             "domainId": domain_id,
-            "credentials": [{"@type": "Password", "secret": password}],
-            "roles": {"@type": "User"},
-            "permissions": {"@type": "Inherit"},
-            "encryptionAtRest": {"@type": "Disabled"},
-            "quotas": {"maxDiskQuota": quota_bytes} if quota_bytes is not None else {},
-            "aliases": [],
-            "memberGroupIds": [],
+            "password": password,
         }
         body = {
             "methodCalls": [["x:Account/set", {"create": {self._CREATE_KEY: create_fields}}, "c1"]],
