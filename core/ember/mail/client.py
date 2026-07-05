@@ -241,27 +241,14 @@ class StalwartMailClient(MailClient):
             "@type": "User",
             "name": local_part,
             "domainId": domain_id,
-
-            "credentials": {
-                "@type": "Password",
-                "secret": password
-            },
-
-            "roles": {
-                "@type": "User"
-            },
-
-            "permissions": {
-                "@type": "Inherit"
-            },
-
-            "encryptionAtRest": {
-                "@type": "Disabled"
-            },
-
-            "aliases": {},          # <- IMPORTANTE: OBJETO, NÃO LISTA
-            "memberGroupIds": {}    # <- IMPORTANTE: OBJETO, NÃO LISTA
+            "credentials": [{"@type": "Password", "secret": password}],
+            "roles": {"@type": "User"},
+            "permissions": {"@type": "Inherit"},
+            "encryptionAtRest": {"@type": "Disabled"},
+            "quotas": {},
         }
+        if quota_bytes is not None:
+            create_fields["quotas"] = {"maxDiskQuota": quota_bytes}
         body = {
             "methodCalls": [["x:Account/set", {"create": {self._CREATE_KEY: create_fields}}, "c1"]],
             "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],

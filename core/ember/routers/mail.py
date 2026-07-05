@@ -11,7 +11,9 @@ from ember.mail import (
     MailAuthenticationError,
     MailClient,
     MailClientError,
+    MailConnectionError,
     MailDomainNotProvisionedError,
+    MailTimeoutError,
     get_mail_client,
 )
 from ember.models import MailAccount, MailDomain, User
@@ -196,14 +198,19 @@ async def create_mail_account_route(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Mail server rejected the configured admin credentials.",
         ) from exc
-    except MailClientError as exc:
+    except (MailConnectionError, MailTimeoutError) as exc:
         # Logged because the detail below is deliberately generic for the
-        # caller — the real cause (wrong token, domain missing on the mail
-        # server, timeout, unexpected response) only shows up here.
+        # caller — transport failures are operational noise for the UI.
         logger.warning("Mail server error creating account %s: %s", data.email, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected account create for %s: %s", data.email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the account creation request.",
         ) from exc
     return MailAccountResponse.model_validate(account)
 
@@ -255,11 +262,19 @@ async def delete_mail_account_route(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Mail server rejected the configured admin credentials.",
         ) from exc
-    except MailClientError as exc:
+    except (MailConnectionError, MailTimeoutError) as exc:
         logger.warning(
             "Mail server error deleting account %s: %s", account.provider_account_id, exc
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not delete the account on the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning(
+            "Mail server rejected account delete for %s: %s", account.provider_account_id, exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the account deletion request.",
         ) from exc

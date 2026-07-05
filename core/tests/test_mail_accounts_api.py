@@ -223,6 +223,23 @@ async def test_create_account_mail_server_unreachable_returns_502(client: AsyncC
     )
 
     assert response.status_code == 502
+    assert response.json()["detail"] == "Could not reach the mail server. Please try again."
+
+
+async def test_create_account_mail_server_rejection_returns_specific_502(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient(create_error=MailClientError("invalidPatch")))
+
+    response = await client.post(
+        _accounts_url(workspace_id),
+        headers=_auth_header(token),
+        json={"domain_id": domain_id, "email": "ada@example.com"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Mail server rejected the account creation request."
 
 
 async def test_create_account_in_others_workspace_returns_404(client: AsyncClient) -> None:

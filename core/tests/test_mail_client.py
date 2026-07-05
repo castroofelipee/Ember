@@ -212,6 +212,8 @@ async def test_create_account_success_returns_dto_and_sends_bearer() -> None:
     assert fields["permissions"] == {"@type": "Inherit"}
     assert fields["encryptionAtRest"] == {"@type": "Disabled"}
     assert fields["quotas"] == {}
+    assert "aliases" not in fields
+    assert "memberGroupIds" not in fields
 
 
 async def test_create_account_resolves_domain_id_first() -> None:

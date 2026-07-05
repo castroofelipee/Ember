@@ -143,7 +143,11 @@ export function MailAccountsView() {
       return;
     }
     if (response.status === 502) {
-      setCreateError("Could not reach the mail server. Please try again.");
+      const detail = await response
+        .json()
+        .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+        .catch(() => null);
+      setCreateError(detail ?? "Could not reach the mail server. Please try again.");
       setCreating(false);
       return;
     }
