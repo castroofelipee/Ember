@@ -370,7 +370,7 @@ async def update_workspace_message(
     message = await mail_client.update_message(
         account_id=account.provider_account_id,
         message_id=message_id,
-        patch=MailMessageUpdate(seen=data.seen, mailbox_role=data.folder),
+        patch=MailMessageUpdate(seen=data.seen, flagged=data.flagged, mailbox_role=data.folder),
     )
     return WorkspaceMailMessageDetail(
         account_id=account.id,

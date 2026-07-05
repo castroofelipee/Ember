@@ -722,8 +722,8 @@ export function MailAccountsView() {
           )}
         </section>
 
-        <button className="link-button" onClick={() => router.push(`/workspace/${workspaceId}`)}>
-          Back to workspace
+        <button className="link-button" onClick={() => router.push(`/workspace/${workspaceId}/mail`)}>
+          Back to mail
         </button>
       </div>
     </div>

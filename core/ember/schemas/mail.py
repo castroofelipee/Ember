@@ -206,6 +206,7 @@ class MailMessageDetailResponse(MailMessageSummaryResponse):
 
 class MailMessageUpdateRequest(BaseModel):
     seen: bool | None = None
+    flagged: bool | None = None
     folder: MailFolder | None = None
 
 

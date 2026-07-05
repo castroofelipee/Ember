@@ -126,11 +126,38 @@ export function MailView() {
     const items: MailThreadPreview[] = await response.json();
     setThreads(items);
     setSelected((current) => {
-      if (!current) return items[0] ?? null;
-      return items.find((item) => item.thread_id === current.thread_id) ?? items[0] ?? null;
+      if (!current) return null;
+      return items.find((item) => item.thread_id === current.thread_id) ?? null;
     });
     setStatus("ready");
     setRefreshing(false);
+  }
+
+  async function toggleThreadFlagged(threadToToggle: MailThreadPreview) {
+    const flagged = !threadToToggle.latest_message.keywords.includes("$flagged");
+    setThreads((items) =>
+      items.map((item) =>
+        item.thread_id === threadToToggle.thread_id
+          ? {
+              ...item,
+              latest_message: {
+                ...item.latest_message,
+                keywords: flagged
+                  ? [...item.latest_message.keywords, "$flagged"]
+                  : item.latest_message.keywords.filter((keyword) => keyword !== "$flagged"),
+              },
+            }
+          : item,
+      ),
+    );
+    await fetch(messageUrl(workspaceId, threadToToggle.account_id, threadToToggle.latest_message.id), {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ flagged }),
+    });
   }
 
   useEffect(() => {
@@ -201,8 +228,9 @@ export function MailView() {
   }, [threads, query]);
 
   const activeFolder = FOLDERS.find((item) => item.key === folder) ?? FOLDERS[0];
-  const selectedIsVisible =
-    selected && filteredThreads.some((item) => item.thread_id === selected.thread_id);
+  const selectedIsVisible = Boolean(
+    selected && filteredThreads.some((item) => item.thread_id === selected.thread_id),
+  );
 
   if (authStatus !== "ready" || status === "loading") {
     return (
@@ -313,7 +341,7 @@ export function MailView() {
           </button>
         </header>
 
-        <section className="mail-panel">
+        <section className={`mail-panel${selectedIsVisible ? " mail-panel--message-open" : ""}`}>
           <div className="mail-list-pane">
             <div className="mail-list-head">
               <div>
@@ -329,16 +357,33 @@ export function MailView() {
               {filteredThreads.map((item) => {
                 const active = selected?.thread_id === item.thread_id;
                 const unread = item.unread_count > 0;
+                const flagged = item.latest_message.keywords.includes("$flagged");
                 return (
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     key={`${item.account_id}:${item.thread_id}`}
                     className={`mail-thread-row${active ? " mail-thread-row--active" : ""}${unread ? " mail-thread-row--unread" : ""}`}
                     onClick={() => setSelected(item)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelected(item);
+                      }
+                    }}
                   >
-                    <span className="mail-thread-star" aria-hidden="true">
+                    <button
+                      type="button"
+                      className={`mail-thread-star${flagged ? " mail-thread-star--active" : ""}`}
+                      aria-label={flagged ? "Remove star" : "Add star"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void toggleThreadFlagged(item);
+                      }}
+                      onKeyDown={(event) => event.stopPropagation()}
+                    >
                       <Star size={16} />
-                    </span>
+                    </button>
                     <span className="mail-thread-sender">{displayParticipants(item)}</span>
                     <span className="mail-thread-content">
                       <span className="mail-thread-subject">
@@ -349,7 +394,7 @@ export function MailView() {
                     {item.has_attachment && <Paperclip size={15} className="mail-thread-attach" />}
                     {unread && <span className="mail-thread-count">{item.unread_count}</span>}
                     <span className="mail-thread-date">{formatMailDate(item.received_at)}</span>
-                  </button>
+                  </div>
                 );
               })}
               {filteredThreads.length === 0 && (
@@ -361,54 +406,64 @@ export function MailView() {
             </div>
           </div>
 
-          <article className={`mail-reader${selectedIsVisible ? "" : " mail-reader--empty"}`}>
-            {!selectedIsVisible || !selected ? (
-              <div className="mail-empty-state mail-empty-state--reader">
-                <MailOpen size={36} />
-                <p className="mail-empty-title">Select a conversation</p>
-              </div>
-            ) : loadingThread || !thread ? (
-              <div className="mail-empty-state mail-empty-state--reader">
-                <Clock size={32} />
-                <p className="mail-empty-title">Loading conversation...</p>
-              </div>
-            ) : (
-              <>
-                <div className="mail-reader-head">
-                  <div>
-                    <p className="mail-list-kicker">{thread.account_email}</p>
-                    <h2>{selected.subject || "(no subject)"}</h2>
+          {selectedIsVisible && selected && (
+            <article className="mail-reader">
+              {loadingThread || !thread ? (
+                <div className="mail-empty-state mail-empty-state--reader">
+                  <Clock size={32} />
+                  <p className="mail-empty-title">Loading conversation...</p>
+                </div>
+              ) : (
+                <>
+                  <div className="mail-reader-head">
+                    <div className="mail-reader-title-row">
+                      <button
+                        type="button"
+                        className="mail-icon-button"
+                        aria-label="Back to message list"
+                        onClick={() => {
+                          setSelected(null);
+                          setThread(null);
+                        }}
+                      >
+                        <ChevronLeft size={20} />
+                      </button>
+                      <div>
+                        <p className="mail-list-kicker">{thread.account_email}</p>
+                        <h2>{selected.subject || "(no subject)"}</h2>
+                      </div>
+                    </div>
+                    <button type="button" className="mail-icon-button" aria-label="More actions">
+                      <MoreVertical size={18} />
+                    </button>
                   </div>
-                  <button type="button" className="mail-icon-button" aria-label="More actions">
-                    <MoreVertical size={18} />
-                  </button>
-                </div>
 
-                <div className="mail-message-stack">
-                  {thread.messages.map((message) => {
-                    const body = message.text_body || stripHtml(message.html_body);
-                    return (
-                      <section key={message.id} className="mail-message-card">
-                        <div className="mail-message-meta">
-                          <div className="mail-avatar">
-                            {displayAddress(message.sender).slice(0, 1).toUpperCase()}
+                  <div className="mail-message-stack">
+                    {thread.messages.map((message) => {
+                      const body = message.text_body || stripHtml(message.html_body);
+                      return (
+                        <section key={message.id} className="mail-message-card">
+                          <div className="mail-message-meta">
+                            <div className="mail-avatar">
+                              {displayAddress(message.sender).slice(0, 1).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="mail-message-from">{displayAddress(message.sender)}</p>
+                              <p className="mail-message-to">
+                                to {message.to.map(displayAddress).join(", ") || thread.account_email}
+                              </p>
+                            </div>
+                            <time>{formatMailDate(message.received_at)}</time>
                           </div>
-                          <div>
-                            <p className="mail-message-from">{displayAddress(message.sender)}</p>
-                            <p className="mail-message-to">
-                              to {message.to.map(displayAddress).join(", ") || thread.account_email}
-                            </p>
-                          </div>
-                          <time>{formatMailDate(message.received_at)}</time>
-                        </div>
-                        <pre className="mail-message-body">{body || message.preview}</pre>
-                      </section>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </article>
+                          <pre className="mail-message-body">{body || message.preview}</pre>
+                        </section>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </article>
+          )}
         </section>
       </main>
     </div>

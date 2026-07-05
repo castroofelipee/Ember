@@ -119,6 +119,7 @@ class MailMessageDetail:
 @dataclass(frozen=True)
 class MailMessageUpdate:
     seen: bool | None = None
+    flagged: bool | None = None
     mailbox_role: str | None = None
 
 
@@ -818,6 +819,8 @@ class StalwartMailClient(MailClient):
         keyword_patch: dict[str, bool | None] = {}
         if patch.seen is not None:
             keyword_patch["keywords/$seen"] = True if patch.seen else None
+        if patch.flagged is not None:
+            keyword_patch["keywords/$flagged"] = True if patch.flagged else None
 
         update_fields = {**mailbox_patch, **keyword_patch}
         if not update_fields:
