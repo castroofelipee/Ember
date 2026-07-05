@@ -241,10 +241,26 @@ class StalwartMailClient(MailClient):
             "@type": "User",
             "name": local_part,
             "domainId": domain_id,
+
             "credentials": {
                 "@type": "Password",
                 "secret": password
-            }
+            },
+
+            "roles": {
+                "@type": "User"
+            },
+
+            "permissions": {
+                "@type": "Inherit"
+            },
+
+            "encryptionAtRest": {
+                "@type": "Disabled"
+            },
+
+            "aliases": {},          # <- IMPORTANTE: OBJETO, NÃO LISTA
+            "memberGroupIds": {}    # <- IMPORTANTE: OBJETO, NÃO LISTA
         }
         body = {
             "methodCalls": [["x:Account/set", {"create": {self._CREATE_KEY: create_fields}}, "c1"]],
