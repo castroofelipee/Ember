@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,7 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ember.db import get_db
 from ember.dependencies import get_current_user
-from ember.mail import MailAccountAlreadyExistsError, MailClient, MailClientError, get_mail_client
+from ember.mail import (
+    MailAccountAlreadyExistsError,
+    MailAuthenticationError,
+    MailClient,
+    MailClientError,
+    get_mail_client,
+)
 from ember.models import MailAccount, MailDomain, User
 from ember.schemas.mail import (
     MailAccountRegisterRequest,
@@ -33,6 +40,8 @@ from ember.services.mail import (
     update_mail_domain,
 )
 from ember.services.workspaces import NotAWorkspaceMemberError, assert_workspace_member
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/workspaces", tags=["Mail"])
 
@@ -175,7 +184,17 @@ async def create_mail_account_route(
             status_code=status.HTTP_409_CONFLICT,
             detail="This address is already registered.",
         ) from exc
+    except MailAuthenticationError as exc:
+        logger.warning("Mail server rejected admin credentials creating %s: %s", data.email, exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
     except MailClientError as exc:
+        # Logged because the detail below is deliberately generic for the
+        # caller — the real cause (wrong token, domain missing on the mail
+        # server, timeout, unexpected response) only shows up here.
+        logger.warning("Mail server error creating account %s: %s", data.email, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not reach the mail server. Please try again.",
@@ -220,7 +239,20 @@ async def delete_mail_account_route(
     account = await _get_account_or_404(db, workspace_id, account_id)
     try:
         await delete_mail_account(db, account, mail_client)
+    except MailAuthenticationError as exc:
+        logger.warning(
+            "Mail server rejected admin credentials deleting %s: %s",
+            account.provider_account_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
     except MailClientError as exc:
+        logger.warning(
+            "Mail server error deleting account %s: %s", account.provider_account_id, exc
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Could not delete the account on the mail server. Please try again.",
