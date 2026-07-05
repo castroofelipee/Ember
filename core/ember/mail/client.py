@@ -10,6 +10,7 @@ is swappable without touching domain code.
 backend so far. Password rotation remains an unimplemented stub.
 """
 
+from argon2 import _password_hasher
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -240,26 +241,10 @@ class StalwartMailClient(MailClient):
             "@type": "User",
             "name": local_part,
             "domainId": domain_id,
-
             "credentials": {
                 "@type": "Password",
                 "secret": password
-            },
-
-            "roles": {
-                "@type": "User"
-            },
-
-            "permissions": {
-                "@type": "Inherit"
-            },
-
-            "encryptionAtRest": {
-                "@type": "Disabled"
-            },
-
-            "aliases": [],
-            "memberGroupIds": [],
+            }
         }
         body = {
             "methodCalls": [["x:Account/set", {"create": {self._CREATE_KEY: create_fields}}, "c1"]],
