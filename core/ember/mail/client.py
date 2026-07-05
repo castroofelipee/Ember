@@ -40,6 +40,16 @@ class MailAccountAlreadyExistsError(MailClientError):
     """The requested address is already taken on the mail server."""
 
 
+class MailDomainNotProvisionedError(MailClientError):
+    """The address's domain has no matching Domain object on the mail server.
+
+    Ember's own MailDomain rows are not mirrored to Stalwart automatically yet
+    (docs/rfc/mail-module.md §5 — tech debt), so a domain can exist in Ember
+    while never having been created on the mail server. Provisioning an account
+    on it must fail with a clear, actionable message rather than a generic
+    provider error."""
+
+
 @dataclass(frozen=True)
 class MailAccount:
     id: str
@@ -163,11 +173,11 @@ class StalwartMailClient(MailClient):
         return response.json()
 
     @staticmethod
-    def _unwrap_set_response(response_body: dict, method_name: str) -> dict:
-        """Return the `arguments` object of the single call's response (JMAP core
-        `/set` methods always answer `[name, arguments, tag]`; RFC 8620 §3.2),
+    def _unwrap_response(response_body: dict, method_name: str) -> dict:
+        """Return the `arguments` object of the single call's response (a JMAP
+        method call always answers `[name, arguments, tag]`; RFC 8620 §3.2),
         raising `MailClientError` for anything but a well-formed `method_name`
-        response. Shared by every `x:Account/set` caller below."""
+        response. Shared by the query/get/set callers below."""
         method_responses = response_body.get("methodResponses") or []
         if not method_responses:
             raise MailClientError(f"Mail server returned no methodResponses for {method_name}")
@@ -180,6 +190,41 @@ class StalwartMailClient(MailClient):
             )
         return arguments
 
+    async def _resolve_domain_id(self, domain: str) -> str:
+        """Look up the mail server's opaque Id for a Domain by its name.
+
+        Stalwart keys accounts by a Domain object's server-assigned Id, not the
+        domain name (an `x:Account/set` with the bare name fails with
+        `invalidPatch: Failed to parse Id`). `x:Domain/query` filters by name
+        (RFC 8620 §5.5); the returned id is what `domainId` must carry."""
+        query_body = {
+            "methodCalls": [["x:Domain/query", {"filter": {"name": domain}}, "c1"]],
+            "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],
+        }
+        arguments = self._unwrap_response(await self._call_jmap(query_body), "x:Domain/query")
+        ids = arguments.get("ids") or []
+        if not ids:
+            raise MailDomainNotProvisionedError(
+                f"Domain {domain!r} is not set up on the mail server; create it there "
+                f"before provisioning accounts on it."
+            )
+        if len(ids) == 1:
+            return str(ids[0])
+
+        # A name filter can match more than one domain (e.g. a substring match);
+        # disambiguate to the exact name via x:Domain/get.
+        get_body = {
+            "methodCalls": [["x:Domain/get", {"ids": ids}, "c1"]],
+            "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],
+        }
+        get_args = self._unwrap_response(await self._call_jmap(get_body), "x:Domain/get")
+        for obj in get_args.get("list") or []:
+            if str(obj.get("name", "")).lower() == domain.lower():
+                return str(obj["id"])
+        raise MailDomainNotProvisionedError(
+            f"Mail server returned no exact match for domain {domain!r}."
+        )
+
     async def create_account(
         self, address: str, password: str, *, quota_bytes: int | None = None
     ) -> MailAccount:
@@ -187,14 +232,14 @@ class StalwartMailClient(MailClient):
         if not local_part or not domain:
             raise ValueError(f"create_account requires a full address, got {address!r}")
 
-        # Stalwart keys a Domain object by its domain name (docs/rfc/mail-module.md
-        # §5 — Ember's own MailDomain likewise stores the bare domain, no separate
-        # provider-side domain id), so the address's domain part doubles as
-        # `domainId` here without a prior lookup.
+        # Stalwart references the domain by its server-assigned Id, not its name,
+        # so resolve it first (see _resolve_domain_id).
+        domain_id = await self._resolve_domain_id(domain)
+
         create_fields = {
             "@type": "User",
             "name": local_part,
-            "domainId": domain,
+            "domainId": domain_id,
             "credentials": [{"@type": "Password", "secret": password}],
             "roles": {"@type": "User"},
             "permissions": {"@type": "Inherit"},
@@ -209,7 +254,7 @@ class StalwartMailClient(MailClient):
         }
 
         response_body = await self._call_jmap(body)
-        arguments = self._unwrap_set_response(response_body, "x:Account/set")
+        arguments = self._unwrap_response(response_body, "x:Account/set")
 
         not_created = arguments.get("notCreated") or {}
         if self._CREATE_KEY in not_created:
@@ -245,7 +290,7 @@ class StalwartMailClient(MailClient):
         }
 
         response_body = await self._call_jmap(body)
-        arguments = self._unwrap_set_response(response_body, "x:Account/set")
+        arguments = self._unwrap_response(response_body, "x:Account/set")
 
         not_destroyed = arguments.get("notDestroyed") or {}
         if account_id in not_destroyed:

@@ -13,6 +13,7 @@ from ember.mail.client import (
     MailClient,
     MailClientError,
     MailConnectionError,
+    MailDomainNotProvisionedError,
     MailTimeoutError,
     StalwartMailClient,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "MailClient",
     "MailClientError",
     "MailConnectionError",
+    "MailDomainNotProvisionedError",
     "MailTimeoutError",
     "StalwartMailClient",
     "get_mail_client",

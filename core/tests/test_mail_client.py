@@ -17,6 +17,7 @@ from ember.mail import (
     MailClient,
     MailClientError,
     MailConnectionError,
+    MailDomainNotProvisionedError,
     MailTimeoutError,
     StalwartMailClient,
     get_mail_client,
@@ -160,17 +161,35 @@ def _created_response(account_id: int = 42, email: str = "ada@example.com") -> h
     )
 
 
+def _domain_query_response(ids: tuple[str, ...] = ("dom1",)) -> httpx.Response:
+    return _jmap_response([["x:Domain/query", {"ids": list(ids)}, "c1"]])
+
+
+def _client_for_create(on_account_set, *, domain_ids: tuple[str, ...] = ("dom1",)):
+    """A client whose transport answers `x:Domain/query` (the domain-id lookup
+    create_account does first) with `domain_ids`, and routes the `x:Account/set`
+    call to `on_account_set(request) -> Response`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        method = json.loads(request.content)["methodCalls"][0][0]
+        if method == "x:Domain/query":
+            return _domain_query_response(domain_ids)
+        return on_account_set(request)
+
+    return _client_with(handler)
+
+
 async def test_create_account_success_returns_dto_and_sends_bearer() -> None:
     seen: dict = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def on_set(request: httpx.Request) -> httpx.Response:
         seen["path"] = request.url.path
         seen["authorization"] = request.headers.get("Authorization")
         seen["content_type"] = request.headers.get("Content-Type")
         seen["body"] = json.loads(request.content)
         return _created_response(account_id=42, email="ada@example.com")
 
-    account = await _client_with(handler).create_account("ada@example.com", "hunter2")
+    account = await _client_for_create(on_set).create_account("ada@example.com", "hunter2")
 
     assert account.id == "42"
     assert account.address == "ada@example.com"
@@ -186,7 +205,8 @@ async def test_create_account_success_returns_dto_and_sends_bearer() -> None:
     fields = method_args["create"]["new1"]
     assert fields["@type"] == "User"
     assert fields["name"] == "ada"
-    assert fields["domainId"] == "example.com"
+    # The resolved Domain Id, not the bare domain name.
+    assert fields["domainId"] == "dom1"
     assert fields["credentials"] == [{"@type": "Password", "secret": "hunter2"}]
     assert fields["roles"] == {"@type": "User"}
     assert fields["permissions"] == {"@type": "Inherit"}
@@ -194,14 +214,43 @@ async def test_create_account_success_returns_dto_and_sends_bearer() -> None:
     assert fields["quotas"] == {}
 
 
+async def test_create_account_resolves_domain_id_first() -> None:
+    calls: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body["methodCalls"][0])
+        method = body["methodCalls"][0][0]
+        if method == "x:Domain/query":
+            return _domain_query_response(("dom-xyz",))
+        return _created_response()
+
+    await _client_with(handler).create_account("ada@example.com", "pw")
+
+    # First call resolves the domain by name; second creates with that id.
+    assert calls[0][0] == "x:Domain/query"
+    assert calls[0][1] == {"filter": {"name": "example.com"}}
+    assert calls[1][0] == "x:Account/set"
+    assert calls[1][1]["create"]["new1"]["domainId"] == "dom-xyz"
+
+
+async def test_create_account_domain_not_on_server_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Empty id list: no Domain object matches the address's domain.
+        return _domain_query_response(())
+
+    with pytest.raises(MailDomainNotProvisionedError):
+        await _client_with(handler).create_account("ada@example.com", "pw")
+
+
 async def test_create_account_sends_quota_when_given() -> None:
     seen: dict = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def on_set(request: httpx.Request) -> httpx.Response:
         seen["body"] = json.loads(request.content)
         return _created_response()
 
-    await _client_with(handler).create_account("ada@example.com", "pw", quota_bytes=1024)
+    await _client_for_create(on_set).create_account("ada@example.com", "pw", quota_bytes=1024)
 
     fields = seen["body"]["methodCalls"][0][1]["create"]["new1"]
     assert fields["quotas"] == {"maxDiskQuota": 1024}
@@ -214,7 +263,7 @@ async def test_create_account_rejects_address_without_domain() -> None:
 
 
 async def test_create_account_already_exists_raises_specific_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def on_set(request: httpx.Request) -> httpx.Response:
         return _jmap_response(
             [
                 [
@@ -233,11 +282,11 @@ async def test_create_account_already_exists_raises_specific_error() -> None:
         )
 
     with pytest.raises(MailAccountAlreadyExistsError):
-        await _client_with(handler).create_account("ada@example.com", "pw")
+        await _client_for_create(on_set).create_account("ada@example.com", "pw")
 
 
 async def test_create_account_other_not_created_raises_generic_client_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def on_set(request: httpx.Request) -> httpx.Response:
         return _jmap_response(
             [
                 [
@@ -256,27 +305,27 @@ async def test_create_account_other_not_created_raises_generic_client_error() ->
         )
 
     with pytest.raises(MailClientError) as exc_info:
-        await _client_with(handler).create_account("ada@example.com", "pw")
+        await _client_for_create(on_set).create_account("ada@example.com", "pw")
     assert not isinstance(exc_info.value, MailAccountAlreadyExistsError)
     assert "invalidProperties" in str(exc_info.value)
 
 
 async def test_create_account_top_level_jmap_error_raises_client_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def on_set(request: httpx.Request) -> httpx.Response:
         return _jmap_response(
             [["error", {"type": "unknownMethod", "description": "no such method"}, "c1"]]
         )
 
     with pytest.raises(MailClientError):
-        await _client_with(handler).create_account("ada@example.com", "pw")
+        await _client_for_create(on_set).create_account("ada@example.com", "pw")
 
 
 async def test_create_account_empty_method_responses_raises_client_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def on_set(request: httpx.Request) -> httpx.Response:
         return _jmap_response([])
 
     with pytest.raises(MailClientError):
-        await _client_with(handler).create_account("ada@example.com", "pw")
+        await _client_for_create(on_set).create_account("ada@example.com", "pw")
 
 
 async def test_create_account_401_raises_authentication() -> None:

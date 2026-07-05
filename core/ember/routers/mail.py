@@ -11,6 +11,7 @@ from ember.mail import (
     MailAuthenticationError,
     MailClient,
     MailClientError,
+    MailDomainNotProvisionedError,
     get_mail_client,
 )
 from ember.models import MailAccount, MailDomain, User
@@ -183,6 +184,11 @@ async def create_mail_account_route(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This address is already registered.",
+        ) from exc
+    except MailDomainNotProvisionedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This domain has not been set up on the mail server yet.",
         ) from exc
     except MailAuthenticationError as exc:
         logger.warning("Mail server rejected admin credentials creating %s: %s", data.email, exc)

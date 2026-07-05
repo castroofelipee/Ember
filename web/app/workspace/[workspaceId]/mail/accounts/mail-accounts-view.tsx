@@ -130,13 +130,15 @@ export function MailAccountsView() {
       setCreating(false);
       return;
     }
-    if (response.status === 409) {
-      setCreateError("This address is already registered.");
-      setCreating(false);
-      return;
-    }
-    if (response.status === 422) {
-      setCreateError("The address must belong to the selected domain.");
+    // 409 covers both "already registered" and "domain not set up on the mail
+    // server"; 422 covers address/domain mismatch. Surface the server's own
+    // detail so the right one shows, with a sensible fallback.
+    if (response.status === 409 || response.status === 422) {
+      const detail = await response
+        .json()
+        .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+        .catch(() => null);
+      setCreateError(detail ?? "Could not create the account. Please check the details.");
       setCreating(false);
       return;
     }
