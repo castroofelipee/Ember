@@ -95,6 +95,17 @@ class EventCreateRequest(BaseModel):
         return self
 
 
+class EventMoveRequest(BaseModel):
+    start_at: datetime
+    end_at: datetime
+
+    @model_validator(mode="after")
+    def validate_time_range(self) -> "EventMoveRequest":
+        if self.end_at <= self.start_at:
+            raise ValueError("end_at must be after start_at")
+        return self
+
+
 class EventResponse(BaseModel):
     id: uuid.UUID
     calendar_id: uuid.UUID

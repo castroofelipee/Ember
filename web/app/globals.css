@@ -3278,6 +3278,20 @@ button.mini-calendar-day--selected:hover {
   filter: brightness(1.12);
 }
 
+.week-event--draggable {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.week-event--dragging {
+  cursor: grabbing;
+  filter: brightness(1.18);
+  opacity: 0.9;
+  z-index: 5;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
+}
+
 .week-event--allday {
   position: static;
   border-left: none;

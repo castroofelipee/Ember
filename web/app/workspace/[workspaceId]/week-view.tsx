@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import {
@@ -13,6 +13,9 @@ import {
 
 const HOUR_PX = 56;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+const DRAG_SNAP_MINUTES = 5;
+const DRAG_CLICK_THRESHOLD_PX = 4;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // `getDay()` returns 0 (Sun)..6 (Sat), matching WEEKDAYS index order.
 const MONTHS = [
@@ -67,6 +70,21 @@ type WeekViewProps = {
   onSlotClick?: (start: Date) => void;
   /** Fires when an event block is clicked, to open its detail popover. */
   onEventClick?: (event: WeekEvent, anchor: DOMRect) => void;
+  /** Fires when a timed event is dropped into a new slot. */
+  onEventMove?: (event: WeekEvent, start: Date, end: Date) => void | Promise<void>;
+};
+
+type DragState = {
+  eventKey: string;
+  event: WeekEvent;
+  pointerId: number;
+  initialClientX: number;
+  initialClientY: number;
+  startOffsetMinutes: number;
+  durationMinutes: number;
+  previewStart: Date;
+  previewEnd: Date;
+  dragged: boolean;
 };
 
 /** Translucent fill from a hex color, for the frosted event blocks. */
@@ -122,6 +140,26 @@ function formatClock(date: Date, format: TimeFormat): string {
   return date.getMinutes() === 0 ? `${hour12} ${period}` : `${hour12}:${m} ${period}`;
 }
 
+function eventKey(event: WeekEvent): string {
+  return `${event.id}-${event.start.getTime()}`;
+}
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addMinutes(date: Date, minutes: number): Date {
+  return new Date(date.getTime() + minutes * MINUTE_MS);
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function snapMinutes(minutes: number): number {
+  return Math.round(minutes / DRAG_SNAP_MINUTES) * DRAG_SNAP_MINUTES;
+}
+
 /** Google-Calendar-style calendar: sticky day header + all-day row over a
  * scrollable 24-hour time grid. Renders a 7-day week or a single day depending
  * on `view`. Follows the app's fixed dark theme. */
@@ -137,10 +175,13 @@ export function WeekView({
   onVisibleRangeChange,
   onSlotClick,
   onEventClick,
+  onEventMove,
 }: WeekViewProps) {
   const today = useMemo(() => new Date(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const suppressClickRef = useRef<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [dragging, setDragging] = useState<DragState | null>(null);
 
   const { week_starts_on, work_day_start, work_day_end, time_format } = preferences;
   const isDay = view === "day";
@@ -194,6 +235,64 @@ export function WeekView({
 
   const step = isDay ? DAY_MS : 7 * DAY_MS;
   const shift = (delta: number) => onDateChange(new Date(date.getTime() + delta * step));
+
+  const updateDragPreview = useCallback((state: DragState, clientX: number, clientY: number): DragState => {
+    const target = document.elementFromPoint(clientX, clientY);
+    const column = target?.closest<HTMLElement>("[data-week-day-index]");
+    if (!column) return state;
+
+    const dayIndex = Number(column.dataset.weekDayIndex);
+    const day = days[dayIndex];
+    if (!day) return state;
+
+    const rect = column.getBoundingClientRect();
+    const pointerMinutes = ((clientY - rect.top) / HOUR_PX) * 60;
+    const maxStartMinutes = Math.max(0, 24 * 60 - Math.min(state.durationMinutes, 24 * 60));
+    const startMinutes = clamp(
+      snapMinutes(pointerMinutes - state.startOffsetMinutes),
+      0,
+      maxStartMinutes,
+    );
+    const previewStart = addMinutes(startOfDay(day), startMinutes);
+    const previewEnd = addMinutes(previewStart, state.durationMinutes);
+    const moved =
+      state.dragged ||
+      Math.abs(clientX - state.initialClientX) > DRAG_CLICK_THRESHOLD_PX ||
+      Math.abs(clientY - state.initialClientY) > DRAG_CLICK_THRESHOLD_PX;
+    return { ...state, previewStart, previewEnd, dragged: moved };
+  }, [days]);
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    function handlePointerMove(event: PointerEvent) {
+      event.preventDefault();
+      setDragging((state) => {
+        if (!state || state.pointerId !== event.pointerId) return state;
+        return updateDragPreview(state, event.clientX, event.clientY);
+      });
+    }
+
+    function finishDrag(event: PointerEvent) {
+      setDragging((state) => {
+        if (!state || state.pointerId !== event.pointerId) return state;
+        if (state.dragged) {
+          suppressClickRef.current = state.eventKey;
+          void onEventMove?.(state.event, state.previewStart, state.previewEnd);
+        }
+        return null;
+      });
+    }
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", finishDrag);
+    window.addEventListener("pointercancel", finishDrag);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishDrag);
+      window.removeEventListener("pointercancel", finishDrag);
+    };
+  }, [dragging, onEventMove, updateDragPreview]);
 
   return (
     <div className="week-view">
@@ -314,15 +413,21 @@ export function WeekView({
             ))}
           </div>
 
-          {days.map((day) => {
+          {days.map((day, dayIndex) => {
             const isToday = isSameDay(day, today);
             const dayEvents = visibleEvents.filter(
-              (event) => !event.allDay && isSameDay(event.start, day),
+              (event) =>
+                !event.allDay &&
+                isSameDay(
+                  dragging?.eventKey === eventKey(event) ? dragging.previewStart : event.start,
+                  day,
+                ),
             );
             return (
               <div
                 className="week-col"
                 key={day.toISOString()}
+                data-week-day-index={dayIndex}
                 onClick={(e) => {
                   if (!onSlotClick) return;
                   const rect = e.currentTarget.getBoundingClientRect();
@@ -357,36 +462,71 @@ export function WeekView({
                 )}
 
                 {dayEvents.map((event) => {
+                  const key = eventKey(event);
+                  const preview =
+                    dragging?.eventKey === key
+                      ? { start: dragging.previewStart, end: dragging.previewEnd }
+                      : null;
+                  const displayStart = preview?.start ?? event.start;
+                  const displayEnd = preview?.end ?? event.end;
                   const top =
-                    (event.start.getHours() * 60 + event.start.getMinutes()) / 60 * HOUR_PX;
+                    (displayStart.getHours() * 60 + displayStart.getMinutes()) / 60 * HOUR_PX;
                   const height = Math.max(
-                    (event.end.getTime() - event.start.getTime()) / 3_600_000 * HOUR_PX,
+                    (displayEnd.getTime() - displayStart.getTime()) / 3_600_000 * HOUR_PX,
                     18,
                   );
+                  const draggable = !event.allDay && !event.recurrence && Boolean(onEventMove);
                   return (
                     <div
-                      className="week-event"
-                      key={`${event.id}-${event.start.getTime()}`}
+                      className={`week-event${dragging?.eventKey === key ? " week-event--dragging" : ""}${
+                        draggable ? " week-event--draggable" : ""
+                      }`}
+                      key={key}
                       style={{
                         top,
                         height,
                         background: hexToRgba(event.color, 0.24),
                         borderLeftColor: event.color,
                       }}
+                      onPointerDown={(e) => {
+                        if (!draggable || e.button !== 0) return;
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const durationMinutes = Math.max(
+                          DRAG_SNAP_MINUTES,
+                          Math.round((event.end.getTime() - event.start.getTime()) / MINUTE_MS),
+                        );
+                        setDragging({
+                          eventKey: key,
+                          event,
+                          pointerId: e.pointerId,
+                          initialClientX: e.clientX,
+                          initialClientY: e.clientY,
+                          startOffsetMinutes: ((e.clientY - rect.top) / HOUR_PX) * 60,
+                          durationMinutes,
+                          previewStart: event.start,
+                          previewEnd: event.end,
+                          dragged: false,
+                        });
+                      }}
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (suppressClickRef.current === key) {
+                          suppressClickRef.current = null;
+                          return;
+                        }
                         onEventClick?.(event, e.currentTarget.getBoundingClientRect());
                       }}
                     >
                       <span className="week-event-title">{event.title}</span>
                       {height > 32 && (
                         <span className="week-event-time">
-                          {formatClock(event.start, time_format)} – {formatClock(event.end, time_format)}
+                          {formatClock(displayStart, time_format)} – {formatClock(displayEnd, time_format)}
                         </span>
                       )}
                       {height <= 32 && (
                         <span className="week-event-time-small">
-                          {formatClock(event.start, time_format)} – {formatClock(event.end, time_format)}
+                          {formatClock(displayStart, time_format)} – {formatClock(displayEnd, time_format)}
                         </span>
                       )}
                     </div>

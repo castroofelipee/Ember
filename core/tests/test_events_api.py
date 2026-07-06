@@ -263,6 +263,101 @@ async def test_delete_nonexistent_event_returns_404(client: AsyncClient) -> None
     assert response.status_code == 404
 
 
+async def test_move_event_updates_start_and_end(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={
+            "start_at": "2026-07-02T11:15:00+00:00",
+            "end_at": "2026-07-02T12:15:00+00:00",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["start_at"] == "2026-07-02T11:15:00Z"
+    assert body["end_at"] == "2026-07-02T12:15:00Z"
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-07-02T00:00:00+00:00", "end": "2026-07-03T00:00:00+00:00"},
+    )
+    assert [event["id"] for event in listed.json()] == [event_id]
+
+
+async def test_move_event_rejects_end_before_start(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={"start_at": END, "end_at": START},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_move_event_requires_auth(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        json={
+            "start_at": "2026-07-02T11:15:00+00:00",
+            "end_at": "2026-07-02T12:15:00+00:00",
+        },
+    )
+
+    assert response.status_code == 401
+
+
+async def test_move_event_in_others_workspace_returns_404(client: AsyncClient) -> None:
+    token_a = await _signup(client)
+    token_b = await _signup_second_user(client, token_a)
+    _, calendar_id = await _make_calendar(client, token_a)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token_a),
+        json=_event_payload(),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token_b),
+        json={
+            "start_at": "2026-07-02T11:15:00+00:00",
+            "end_at": "2026-07-02T12:15:00+00:00",
+        },
+    )
+
+    assert response.status_code == 404
+
+
 async def test_list_events_in_others_workspace_returns_404(client: AsyncClient) -> None:
     token_a = await _signup(client)
     token_b = await _signup_second_user(client, token_a)

@@ -100,6 +100,38 @@ export function WorkspaceView() {
     if (rangeRef.current) void loadEvents(rangeRef.current.start, rangeRef.current.end);
   }, [loadEvents]);
 
+  const moveEvent = useCallback(
+    async (event: WeekEvent, start: Date, end: Date) => {
+      if (event.allDay || event.recurrence) return;
+
+      setSelected(null);
+      setEvents((prev) =>
+        prev.map((item) =>
+          item.id === event.id ? { ...item, start: new Date(start), end: new Date(end) } : item,
+        ),
+      );
+
+      const response = await fetch(`/api/events/${event.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          start_at: start.toISOString(),
+          end_at: end.toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        refetchEvents();
+        return;
+      }
+      refetchEvents();
+    },
+    [accessToken, refetchEvents],
+  );
+
   const deleteSelectedEvent = useCallback(
     async (event: WeekEvent) => {
       setDeleting(true);
@@ -246,6 +278,7 @@ export function WorkspaceView() {
           onVisibleRangeChange={handleVisibleRangeChange}
           onSlotClick={(start) => setDialog({ open: true, initialStart: start })}
           onEventClick={(event, anchor) => setSelected({ event, anchor })}
+          onEventMove={moveEvent}
         />
       </main>
 

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ember.models import Calendar, Event, EventAttendee
-from ember.schemas.events import EventCreateRequest
+from ember.schemas.events import EventCreateRequest, EventMoveRequest
 
 _FREQ_MAP = {"DAILY": DAILY, "WEEKLY": WEEKLY, "MONTHLY": MONTHLY, "YEARLY": YEARLY}
 # 0=Monday..6=Sunday, matching RecurrenceRule.by_weekday.
@@ -153,6 +153,13 @@ async def get_event_or_none(session: AsyncSession, event_id: uuid.UUID) -> Event
 async def delete_event(session: AsyncSession, event: Event) -> None:
     await session.delete(event)
     await session.flush()
+
+
+async def move_event(session: AsyncSession, event: Event, data: EventMoveRequest) -> Event:
+    event.start_at = data.start_at
+    event.end_at = data.end_at
+    await session.flush()
+    return await get_event(session, event.id)
 
 
 def _expand_occurrences(
