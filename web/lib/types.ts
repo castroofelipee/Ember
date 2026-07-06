@@ -42,6 +42,94 @@ export type EventItem = {
   recurrence: RecurrenceRule | null;
 };
 
+export type EntityType =
+  | "task"
+  | "bug"
+  | "idea"
+  | "decision"
+  | "rfc"
+  | "event"
+  | "meeting"
+  | "email"
+  | "customer_request"
+  | "pr"
+  | "incident"
+  | "note"
+  | "document";
+
+export type ChecklistItem = {
+  id: string;
+  text: string;
+  done: boolean;
+};
+
+export type Entity = {
+  id: string;
+  workspace_id: string;
+  type: EntityType;
+  title: string;
+  content: string;
+  properties: Record<string, unknown>;
+  created_by_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type KnowledgeFolder = {
+  id: string;
+  workspace_id: string;
+  parent_id: string | null;
+  title: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Relation = {
+  id: string;
+  workspace_id: string;
+  from_entity_id: string;
+  to_entity_id: string;
+  relation_type: string;
+  source: "manual" | "wiki_link" | "system";
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type RelatedEntity = {
+  entity: Entity;
+  relation: Relation;
+  direction: "incoming" | "outgoing";
+};
+
+export type BoardColumn = {
+  id: string;
+  board_id: string;
+  title: string;
+  position: number;
+  status_key: string | null;
+};
+
+export type BoardCard = {
+  board_id: string;
+  entity: Entity;
+  column_id: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Board = {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  columns: BoardColumn[];
+  cards: BoardCard[];
+};
+
 /** Google-style named event colors. `value` is null for "calendar default". */
 export const EVENT_COLORS = [
   { name: "Calendar default", value: null },

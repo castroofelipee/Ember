@@ -3,7 +3,17 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, LayoutGrid, Mail, Menu, Plus, Search, Settings } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Columns3,
+  LayoutGrid,
+  Mail,
+  Menu,
+  Plus,
+  Search,
+  Settings,
+} from "lucide-react";
 
 import type { Calendar } from "@/lib/types";
 
@@ -92,6 +102,15 @@ export function Sidebar({
         >
           <Mail size={18} />
           {open && <span>Mail</span>}
+        </button>
+
+        <button
+          type="button"
+          className="sidebar-settings-button"
+          onClick={() => router.push(`/workspace/${workspaceId}/boards`)}
+        >
+          <Columns3 size={18} />
+          {open && <span>Boards</span>}
         </button>
 
         <button
