@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -193,6 +194,7 @@ class BoardCardCreateWithEntityRequest(BaseModel):
     labels: list[str] = Field(default_factory=list, max_length=30)
     assignees: list[str] = Field(default_factory=list, max_length=30)
     due_date: str = Field(default="", max_length=40)
+    recurrence: Literal["none", "daily"] = "none"
     checklist: list[dict] = Field(default_factory=list)
 
     @field_validator("title")

@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CalendarDays,
+  CheckCircle2,
   CheckSquare,
   Columns3,
   FilePlus,
@@ -34,7 +36,10 @@ import type {
   EntityType,
   KnowledgeFolder,
   RelatedEntity,
+  Calendar,
 } from "@/lib/types";
+
+const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
 
 const ENTITY_TYPES: { value: EntityType; label: string }[] = [
   { value: "task", label: "Task" },
@@ -62,6 +67,7 @@ const RELATED_TYPES: { value: EntityType; label: string }[] = [
 ];
 
 type ViewMode = "board" | "docs";
+type CardRecurrence = "none" | "daily";
 
 function typeLabel(type: EntityType): string {
   return ENTITY_TYPES.find((item) => item.value === type)?.label ?? type;
@@ -134,12 +140,35 @@ function checklistProp(entity: Entity): ChecklistItem[] {
     .filter((item): item is ChecklistItem => item !== null);
 }
 
+function boolProp(entity: Entity, key: string): boolean {
+  return entity.properties[key] === true;
+}
+
+function initialForName(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || "?";
+}
+
+function isFutureDate(value: string): boolean {
+  if (!value) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const date = new Date(`${value}T00:00:00`);
+  return date.getTime() > today.getTime();
+}
+
+function nextDayIsoDate(value: string): string {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + 1);
+  return date.toISOString();
+}
+
 export function BoardsView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { status: authStatus, accessToken } = useRequireAuth();
   const [mode, setMode] = useState<ViewMode>("board");
   const [boards, setBoards] = useState<Board[]>([]);
+  const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [folders, setFolders] = useState<KnowledgeFolder[]>([]);
   const [documents, setDocuments] = useState<Entity[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
@@ -160,22 +189,16 @@ export function BoardsView() {
     [boards, activeBoardId],
   );
 
-  const visibleDocuments = useMemo(
-    () =>
-      documents.filter((document) => {
-        const folderId = stringProp(document, "folder_id") || null;
-        return folderId === activeFolderId;
-      }),
-    [activeFolderId, documents],
-  );
-
   const loadKnowledge = useCallback(async () => {
     if (authStatus !== "ready") return;
     setLoading(true);
     setError(null);
     try {
-      const [boardsResponse, foldersResponse, documentsResponse] = await Promise.all([
+      const [boardsResponse, calendarsResponse, foldersResponse, documentsResponse] = await Promise.all([
         fetch(`/api/workspaces/${workspaceId}/boards`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+        fetch(`/api/workspaces/${workspaceId}/calendars`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
         fetch(`/api/workspaces/${workspaceId}/folders`, {
@@ -185,14 +208,16 @@ export function BoardsView() {
           headers: { Authorization: `Bearer ${accessToken}` },
         }),
       ]);
-      if (!boardsResponse.ok || !foldersResponse.ok || !documentsResponse.ok) {
+      if (!boardsResponse.ok || !calendarsResponse.ok || !foldersResponse.ok || !documentsResponse.ok) {
         setError("Could not load workspace knowledge.");
         return;
       }
       const boardItems: Board[] = await boardsResponse.json();
+      const calendarItems: Calendar[] = await calendarsResponse.json();
       const folderItems: KnowledgeFolder[] = await foldersResponse.json();
       const documentItems: Entity[] = await documentsResponse.json();
       setBoards(boardItems);
+      setCalendars(calendarItems);
       setFolders(folderItems);
       setDocuments(documentItems);
       setActiveBoardId((current) => current ?? boardItems[0]?.id ?? null);
@@ -274,6 +299,7 @@ export function BoardsView() {
     dueDate: string;
     content: string;
     checklist: ChecklistItem[];
+    recurrence: CardRecurrence;
   }) {
     if (!activeBoard || !data.title.trim()) return;
     try {
@@ -291,16 +317,52 @@ export function BoardsView() {
             assignees: data.assignees,
             due_date: data.dueDate,
             checklist: data.checklist,
+            recurrence: data.recurrence,
           }),
         },
         "Could not create card.",
       );
+      const createdEntity = updatedBoard.cards.at(-1)?.entity ?? null;
       setBoards((prev) => prev.map((item) => (item.id === updatedBoard.id ? updatedBoard : item)));
-      setSelectedEntity(updatedBoard.cards.at(-1)?.entity ?? null);
+      setSelectedEntity(createdEntity);
       setCreatingCardColumn(null);
+      if (createdEntity && data.dueDate && isFutureDate(data.dueDate)) {
+        try {
+          await createCalendarEventForCard(createdEntity, data.dueDate, data.recurrence);
+        } catch (error) {
+          setError(error instanceof Error ? error.message : "Card created, but calendar event could not be created.");
+          return;
+        }
+      }
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not create card.");
+    }
+  }
+
+  async function createCalendarEventForCard(entity: Entity, dueDate: string, recurrence: CardRecurrence) {
+    const calendarId = calendars[0]?.id;
+    if (!calendarId) return;
+    const response = await fetch(`/api/calendars/${calendarId}/events`, {
+      method: "POST",
+      headers: apiHeaders(accessToken),
+      body: JSON.stringify({
+        title: entity.title,
+        description: entity.content || null,
+        location: null,
+        start_at: new Date(`${dueDate}T00:00:00`).toISOString(),
+        end_at: nextDayIsoDate(dueDate),
+        all_day: true,
+        color: "#21103b",
+        attendees: [],
+        recurrence:
+          recurrence === "daily"
+            ? { freq: "DAILY", interval: 1, by_weekday: null, count: null, until: null }
+            : null,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await responseError(response, "Card created, but calendar event could not be created."));
     }
   }
 
@@ -420,10 +482,85 @@ export function BoardsView() {
     setDocuments((prev) => prev.map((document) => (document.id === entity.id ? entity : document)));
   }
 
+  async function closeCard(entity: Entity) {
+    try {
+      const updated = await jsonRequest<Entity>(
+        `/api/workspaces/${workspaceId}/entities/${entity.id}`,
+        {
+          method: "PATCH",
+          headers: apiHeaders(accessToken),
+          body: JSON.stringify({
+            properties: {
+              ...entity.properties,
+              completed: true,
+              completed_at: new Date().toISOString(),
+            },
+          }),
+        },
+        "Could not close card.",
+      );
+      updateEntityInState(updated);
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not close card.");
+    }
+  }
+
+  async function deleteCard(entity: Entity) {
+    if (!activeBoard) return;
+    try {
+      const response = await fetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) throw new Error(await responseError(response, "Could not delete card."));
+      setBoards((prev) =>
+        prev.map((board) =>
+          board.id === activeBoard.id
+            ? { ...board, cards: board.cards.filter((card) => card.entity.id !== entity.id) }
+            : board,
+        ),
+      );
+      setSelectedEntity((current) => (current?.id === entity.id ? null : current));
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not delete card.");
+    }
+  }
+
   if (authStatus !== "ready" || loading) {
     return (
       <div className="knowledge-page knowledge-page--center">
         <p className="mail-empty-title">Loading boards...</p>
+      </div>
+    );
+  }
+
+  if (mode === "docs") {
+    return (
+      <div className="knowledge-page knowledge-page--docs-only">
+        {error && <p className="form-error">{error}</p>}
+        <DocsPanel
+          folders={folders}
+          documents={documents}
+          selectedDocument={selectedDocument}
+          documentTitle={documentTitle}
+          folderTitle={folderTitle}
+          activeFolderId={activeFolderId}
+          onBack={() => router.push(`/workspace/${workspaceId}`)}
+          onDocumentTitleChange={setDocumentTitle}
+          onFolderTitleChange={setFolderTitle}
+          onCreateDocument={createDocument}
+          onCreateFolder={createFolder}
+          onSelectFolder={setActiveFolderId}
+          onSelectDocument={(document) => {
+            setSelectedDocument(document);
+            setSelectedEntity(null);
+          }}
+          onUpdated={updateEntityInState}
+          workspaceId={workspaceId}
+          accessToken={accessToken}
+        />
       </div>
     );
   }
@@ -454,7 +591,7 @@ export function BoardsView() {
           </button>
           <button
             type="button"
-            className={mode === "docs" ? "knowledge-tab knowledge-tab--active" : "knowledge-tab"}
+            className="knowledge-tab"
             onClick={() => setMode("docs")}
           >
             <FileText size={15} />
@@ -462,108 +599,51 @@ export function BoardsView() {
           </button>
         </div>
 
-        {mode === "board" ? (
-          <>
-            <div className="knowledge-create">
-              <input
-                className="event-dialog-input"
-                value={boardTitle}
-                onChange={(event) => setBoardTitle(event.target.value)}
-                placeholder="Board name"
-              />
-              <Button type="button" onClick={createBoard}>
-                <Plus />
-                Board
-              </Button>
-            </div>
+        <div className="knowledge-create">
+          <input
+            className="event-dialog-input"
+            value={boardTitle}
+            onChange={(event) => setBoardTitle(event.target.value)}
+            placeholder="Board name"
+          />
+          <Button type="button" onClick={createBoard}>
+            <Plus />
+            Board
+          </Button>
+        </div>
 
-            <div className="knowledge-board-list">
-              {boards.map((board) => (
-                <button
-                  type="button"
-                  key={board.id}
-                  className={`knowledge-board-button${activeBoard?.id === board.id ? " knowledge-board-button--active" : ""}`}
-                  onClick={() => setActiveBoardId(board.id)}
-                >
-                  <Columns3 size={16} />
-                  <span>{board.title}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="knowledge-create">
-              <input
-                className="event-dialog-input"
-                value={folderTitle}
-                onChange={(event) => setFolderTitle(event.target.value)}
-                placeholder="Folder name"
-              />
-              <Button type="button" onClick={createFolder}>
-                <FolderPlus />
-                Folder
-              </Button>
-            </div>
-
-            <div className="knowledge-board-list">
-              <button
-                type="button"
-                className={`knowledge-board-button${activeFolderId === null ? " knowledge-board-button--active" : ""}`}
-                onClick={() => setActiveFolderId(null)}
-              >
-                <Folder size={16} />
-                <span>Root</span>
-              </button>
-              {folders.map((folder) => (
-                <button
-                  type="button"
-                  key={folder.id}
-                  className={`knowledge-board-button${activeFolderId === folder.id ? " knowledge-board-button--active" : ""}`}
-                  onClick={() => setActiveFolderId(folder.id)}
-                >
-                  <Folder size={16} />
-                  <span>{folder.title}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        <div className="knowledge-board-list">
+          {boards.map((board) => (
+            <button
+              type="button"
+              key={board.id}
+              className={`knowledge-board-button${activeBoard?.id === board.id ? " knowledge-board-button--active" : ""}`}
+              onClick={() => setActiveBoardId(board.id)}
+            >
+              <Columns3 size={16} />
+              <span>{board.title}</span>
+            </button>
+          ))}
+        </div>
       </aside>
 
       <main className="knowledge-main">
         {error && <p className="form-error">{error}</p>}
-        {mode === "board" ? (
-          <BoardPanel
-            activeBoard={activeBoard}
-            columnTitle={columnTitle}
-            selectedEntity={selectedEntity}
-            onColumnTitleChange={setColumnTitle}
-            onCreateColumn={createColumn}
-            onCreateCard={(column) => setCreatingCardColumn(column)}
-            onUpdateColumn={updateColumn}
-            onDeleteColumn={deleteColumn}
-            onDragStart={setDraggingEntityId}
-            onDropColumn={moveCard}
-            onSelectEntity={setSelectedEntity}
-          />
-        ) : (
-          <DocsPanel
-            folder={folders.find((item) => item.id === activeFolderId) ?? null}
-            documents={visibleDocuments}
-            selectedDocument={selectedDocument}
-            documentTitle={documentTitle}
-            onDocumentTitleChange={setDocumentTitle}
-            onCreateDocument={createDocument}
-            onSelectDocument={(document) => {
-              setSelectedDocument(document);
-              setSelectedEntity(null);
-            }}
-            onUpdated={updateEntityInState}
-            workspaceId={workspaceId}
-            accessToken={accessToken}
-          />
-        )}
+        <BoardPanel
+          activeBoard={activeBoard}
+          columnTitle={columnTitle}
+          selectedEntity={selectedEntity}
+          onColumnTitleChange={setColumnTitle}
+          onCreateColumn={createColumn}
+          onCreateCard={(column) => setCreatingCardColumn(column)}
+          onUpdateColumn={updateColumn}
+          onDeleteColumn={deleteColumn}
+          onDragStart={setDraggingEntityId}
+          onDropColumn={moveCard}
+          onSelectEntity={setSelectedEntity}
+          onCloseCard={closeCard}
+          onDeleteCard={deleteCard}
+        />
       </main>
 
       {selectedEntity && selectedEntity.type !== "document" && (
@@ -573,6 +653,8 @@ export function BoardsView() {
           entity={selectedEntity}
           onClose={() => setSelectedEntity(null)}
           onUpdated={updateEntityInState}
+          onClosed={closeCard}
+          onDeleted={deleteCard}
           onRelatedCreated={updateEntityInState}
         />
       )}
@@ -599,6 +681,8 @@ function BoardPanel({
   onDragStart,
   onDropColumn,
   onSelectEntity,
+  onCloseCard,
+  onDeleteCard,
 }: {
   activeBoard: Board | null;
   columnTitle: string;
@@ -611,6 +695,8 @@ function BoardPanel({
   onDragStart: (entityId: string) => void;
   onDropColumn: (column: BoardColumn) => void;
   onSelectEntity: (entity: Entity) => void;
+  onCloseCard: (entity: Entity) => void;
+  onDeleteCard: (entity: Entity) => void;
 }) {
   if (!activeBoard) {
     return (
@@ -680,6 +766,8 @@ function BoardPanel({
                       active={selectedEntity?.id === card.entity.id}
                       onSelect={() => onSelectEntity(card.entity)}
                       onDragStart={() => onDragStart(card.entity.id)}
+                      onClose={() => onCloseCard(card.entity)}
+                      onDelete={() => onDeleteCard(card.entity)}
                     />
                   ))}
                   <button
@@ -759,36 +847,69 @@ function ColumnHeader({
 }
 
 function DocsPanel({
-  folder,
+  folders,
   documents,
   selectedDocument,
   documentTitle,
+  folderTitle,
+  activeFolderId,
   workspaceId,
   accessToken,
+  onBack,
   onDocumentTitleChange,
+  onFolderTitleChange,
   onCreateDocument,
+  onCreateFolder,
+  onSelectFolder,
   onSelectDocument,
   onUpdated,
 }: {
-  folder: KnowledgeFolder | null;
+  folders: KnowledgeFolder[];
   documents: Entity[];
   selectedDocument: Entity | null;
   documentTitle: string;
+  folderTitle: string;
+  activeFolderId: string | null;
   workspaceId: string;
   accessToken: string | null;
+  onBack: () => void;
   onDocumentTitleChange: (value: string) => void;
+  onFolderTitleChange: (value: string) => void;
   onCreateDocument: () => void;
+  onCreateFolder: () => void;
+  onSelectFolder: (folderId: string | null) => void;
   onSelectDocument: (entity: Entity) => void;
   onUpdated: (entity: Entity) => void;
 }) {
+  const rootDocuments = documents.filter((document) => !stringProp(document, "folder_id"));
+  const folderDocumentMap = useMemo(() => {
+    const map = new Map<string, Entity[]>();
+    folders.forEach((folder) => map.set(folder.id, []));
+    documents.forEach((document) => {
+      const folderId = stringProp(document, "folder_id");
+      if (!folderId) return;
+      map.set(folderId, [...(map.get(folderId) ?? []), document]);
+    });
+    return map;
+  }, [documents, folders]);
+
   return (
     <div className="knowledge-doc-layout">
-      <header className="knowledge-header">
-        <div>
-          <p className="mail-list-kicker">Markdown documents</p>
-          <h1>{folder?.title ?? "Root"}</h1>
+      <aside className="knowledge-doc-explorer">
+        <div className="knowledge-doc-explorer-head">
+          <button
+            type="button"
+            className="mail-icon-button"
+            aria-label="Back to calendar"
+            onClick={onBack}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <span>Files</span>
+          <FileText size={15} />
         </div>
-        <div className="knowledge-card-create knowledge-card-create--docs">
+
+        <div className="knowledge-doc-create-row">
           <input
             className="event-dialog-input"
             value={documentTitle}
@@ -798,35 +919,74 @@ function DocsPanel({
             }}
             placeholder="Document title"
           />
-          <Button type="button" onClick={onCreateDocument}>
-            <FilePlus />
-            Document
-          </Button>
+          <button type="button" aria-label="Create document" onClick={onCreateDocument}>
+            <FilePlus size={15} />
+          </button>
         </div>
-      </header>
+        <div className="knowledge-doc-create-row">
+          <input
+            className="event-dialog-input"
+            value={folderTitle}
+            onChange={(event) => onFolderTitleChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") onCreateFolder();
+            }}
+            placeholder="Folder name"
+          />
+          <button type="button" aria-label="Create folder" onClick={onCreateFolder}>
+            <FolderPlus size={15} />
+          </button>
+        </div>
 
-      <section className="knowledge-doc-grid">
-        {documents.length === 0 ? (
-          <div className="knowledge-empty knowledge-empty--compact">
-            <FileText size={24} />
-            <h1>Create a document</h1>
-            <p>Documents are Markdown entities and can be linked from cards with [[title]].</p>
-          </div>
-        ) : (
-          documents.map((document) => (
+        <nav className="knowledge-doc-tree" aria-label="Documents">
+          <div className="knowledge-doc-tree-section">
             <button
               type="button"
-              className="knowledge-doc"
-              key={document.id}
-              onClick={() => onSelectDocument(document)}
+              className={`knowledge-doc-folder${activeFolderId === null ? " knowledge-doc-folder--active" : ""}`}
+              onClick={() => onSelectFolder(null)}
             >
-              <FileText size={18} />
-              <strong>{document.title}</strong>
-              <span>{document.content || "Empty Markdown document"}</span>
+              <Folder size={15} />
+              <span>Root</span>
             </button>
-          ))
-        )}
-      </section>
+            <div className="knowledge-doc-tree-children">
+              {rootDocuments.map((document) => (
+                <DocTreeItem
+                  key={document.id}
+                  document={document}
+                  active={selectedDocument?.id === document.id}
+                  onSelect={() => onSelectDocument(document)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {folders.map((folder) => {
+            const folderDocuments = folderDocumentMap.get(folder.id) ?? [];
+            return (
+              <div className="knowledge-doc-tree-section" key={folder.id}>
+                <button
+                  type="button"
+                  className={`knowledge-doc-folder${activeFolderId === folder.id ? " knowledge-doc-folder--active" : ""}`}
+                  onClick={() => onSelectFolder(folder.id)}
+                >
+                  <Folder size={15} />
+                  <span>{folder.title}</span>
+                </button>
+                <div className="knowledge-doc-tree-children">
+                  {folderDocuments.map((document) => (
+                    <DocTreeItem
+                      key={document.id}
+                      document={document}
+                      active={selectedDocument?.id === document.id}
+                      onSelect={() => onSelectDocument(document)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </nav>
+      </aside>
 
       {selectedDocument ? (
         <DocumentEditor
@@ -838,153 +998,32 @@ function DocsPanel({
       ) : (
         <section className="knowledge-doc-editor knowledge-doc-editor--empty">
           <FileText size={24} />
-          <h2>Select a document</h2>
+          <h2>No file is open</h2>
         </section>
       )}
     </div>
   );
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function renderInlineMarkdown(value: string): string {
-  return escapeHtml(value)
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(/\[\[([^\]\n]+)\]\]/g, '<span class="knowledge-doc-wikilink">$1</span>')
-    .replace(/__(.+?)__/g, "<strong>$1</strong>")
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-}
-
-function markdownToEditorHtml(markdown: string): string {
-  const lines = markdown.split("\n");
-  let html = "";
-  let inCode = false;
-  let codeLines: string[] = [];
-
-  lines.forEach((line) => {
-    if (line.trim().startsWith("```")) {
-      if (inCode) {
-        html += `<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`;
-        codeLines = [];
-        inCode = false;
-      } else {
-        inCode = true;
-      }
-      return;
-    }
-
-    if (inCode) {
-      codeLines.push(line);
-      return;
-    }
-
-    if (!line.trim()) {
-      html += "<p><br></p>";
-      return;
-    }
-
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-    if (heading) {
-      const level = heading[1].length;
-      html += `<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`;
-      return;
-    }
-
-    const checkbox = /^-\s+\[( |x|X)\]\s+(.+)$/.exec(line);
-    if (checkbox) {
-      const checked = checkbox[1].toLowerCase() === "x";
-      html += `<div class="knowledge-doc-task" data-checked="${checked ? "true" : "false"}"><span>${checked ? "☑" : "☐"}</span><p>${renderInlineMarkdown(checkbox[2])}</p></div>`;
-      return;
-    }
-
-    const bullet = /^[-*]\s+(.+)$/.exec(line);
-    if (bullet) {
-      html += `<div class="knowledge-doc-bullet" data-block="bullet"><span></span><p>${renderInlineMarkdown(bullet[1])}</p></div>`;
-      return;
-    }
-
-    html += `<p>${renderInlineMarkdown(line)}</p>`;
-  });
-
-  if (inCode) html += `<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`;
-  return html || "<p><br></p>";
-}
-
-function serializeInline(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-  if (node.nodeType !== Node.ELEMENT_NODE) return "";
-  const element = node as HTMLElement;
-  const text = Array.from(element.childNodes).map(serializeInline).join("");
-  if (element.tagName === "STRONG" || element.tagName === "B") return `__${text}__`;
-  if (element.tagName === "CODE") return `\`${text}\``;
-  if (element.classList.contains("knowledge-doc-wikilink")) return `[[${text}]]`;
-  return text;
-}
-
-function editorHtmlToMarkdown(root: HTMLElement): string {
-  return Array.from(root.childNodes)
-    .map((node) => {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-      if (node.nodeType !== Node.ELEMENT_NODE) return "";
-      const element = node as HTMLElement;
-      if (element.tagName === "H1") return `# ${serializeInline(element)}`;
-      if (element.tagName === "H2") return `## ${serializeInline(element)}`;
-      if (element.tagName === "H3") return `### ${serializeInline(element)}`;
-      if (element.tagName === "PRE") return `\`\`\`\n${element.innerText.trimEnd()}\n\`\`\``;
-      if (element.classList.contains("knowledge-doc-task")) {
-        const checked = element.dataset.checked === "true" ? "x" : " ";
-        const paragraph = element.querySelector("p");
-        return `- [${checked}] ${paragraph ? serializeInline(paragraph) : element.innerText}`;
-      }
-      if (element.classList.contains("knowledge-doc-bullet")) {
-        const paragraph = element.querySelector("p");
-        return `- ${paragraph ? serializeInline(paragraph) : element.innerText}`;
-      }
-      return serializeInline(element);
-    })
-    .join("\n");
-}
-
-function caretOffset(root: HTMLElement): number {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return 0;
-  const range = selection.getRangeAt(0);
-  const clone = range.cloneRange();
-  clone.selectNodeContents(root);
-  clone.setEnd(range.endContainer, range.endOffset);
-  return clone.toString().length;
-}
-
-function restoreCaret(root: HTMLElement, offset: number) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let currentOffset = 0;
-  let current = walker.nextNode();
-  while (current) {
-    const length = current.textContent?.length ?? 0;
-    if (currentOffset + length >= offset) {
-      const range = document.createRange();
-      range.setStart(current, Math.max(0, Math.min(length, offset - currentOffset)));
-      range.collapse(true);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      return;
-    }
-    currentOffset += length;
-    current = walker.nextNode();
-  }
-  const range = document.createRange();
-  range.selectNodeContents(root);
-  range.collapse(false);
-  const selection = window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
+function DocTreeItem({
+  document,
+  active,
+  onSelect,
+}: {
+  document: Entity;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`knowledge-doc-file${active ? " knowledge-doc-file--active" : ""}`}
+      onClick={onSelect}
+    >
+      <FileText size={14} />
+      <span>{document.title}</span>
+    </button>
+  );
 }
 
 function DocumentEditor({
@@ -1001,26 +1040,12 @@ function DocumentEditor({
   const [title, setTitle] = useState(document.title);
   const [content, setContent] = useState(document.content);
   const [error, setError] = useState<string | null>(null);
-  const editorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setTitle(document.title);
     setContent(document.content);
     setError(null);
-    if (editorRef.current) {
-      editorRef.current.innerHTML = markdownToEditorHtml(document.content);
-    }
   }, [document]);
-
-  function handleEditorInput() {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const offset = caretOffset(editor);
-    const markdown = editorHtmlToMarkdown(editor);
-    setContent(markdown);
-    editor.innerHTML = markdownToEditorHtml(markdown);
-    restoreCaret(editor, offset);
-  }
 
   async function saveDocument() {
     const response = await fetch(`/api/workspaces/${workspaceId}/entities/${document.id}`, {
@@ -1055,14 +1080,16 @@ function DocumentEditor({
         </Button>
       </div>
       {error && <p className="form-error">{error}</p>}
-      <div
-        ref={editorRef}
-        className="knowledge-doc-rich-editor"
-        contentEditable
-        suppressContentEditableWarning
-        onInput={handleEditorInput}
-        onBlur={handleEditorInput}
-      />
+      <div className="knowledge-doc-md-editor" data-color-mode="dark">
+        <MDEditor
+          value={content}
+          onChange={(value) => setContent(value ?? "")}
+          preview="edit"
+          visibleDragbar={false}
+          textareaProps={{ spellCheck: false }}
+          height="100%"
+        />
+      </div>
     </section>
   );
 }
@@ -1072,26 +1099,64 @@ function BoardCardView({
   active,
   onSelect,
   onDragStart,
+  onClose,
+  onDelete,
 }: {
   card: BoardCard;
   active: boolean;
   onSelect: () => void;
   onDragStart: () => void;
+  onClose: () => void;
+  onDelete: () => void;
 }) {
   const labels = stringListProp(card.entity, "labels");
   const assignees = stringListProp(card.entity, "assignees");
   const done = checklistProp(card.entity).filter((item) => item.done).length;
   const total = checklistProp(card.entity).length;
+  const completed = boolProp(card.entity, "completed");
 
   return (
-    <button
-      type="button"
-      className={`knowledge-card${active ? " knowledge-card--active" : ""}`}
+    <article
+      className={`knowledge-card${active ? " knowledge-card--active" : ""}${completed ? " knowledge-card--completed" : ""}`}
       draggable
+      role="button"
+      tabIndex={0}
       onDragStart={onDragStart}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
     >
-      <span className="knowledge-card-type">{typeLabel(card.entity.type)}</span>
+      <span className="knowledge-card-topline">
+        <span className="knowledge-card-type">{completed ? "Completed" : typeLabel(card.entity.type)}</span>
+        <span className="knowledge-card-actions">
+          {!completed && (
+            <button
+              type="button"
+              aria-label="Close card as completed"
+              onClick={(event) => {
+                event.stopPropagation();
+                onClose();
+              }}
+            >
+              <CheckCircle2 size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="Delete card"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 size={14} />
+          </button>
+        </span>
+      </span>
       <strong>{card.entity.title}</strong>
       {card.entity.content && <span className="knowledge-card-preview">{card.entity.content}</span>}
       {labels.length > 0 && (
@@ -1108,12 +1173,17 @@ function BoardCardView({
           </span>
         )}
         {assignees.length > 0 && (
-          <span>
-            <UserRound size={13} /> {assignees.join(", ")}
+          <span className="knowledge-assignee-list">
+            {assignees.map((assignee) => (
+              <span className="knowledge-assignee" key={assignee} title={assignee}>
+                <span className="knowledge-assignee-avatar">{initialForName(assignee)}</span>
+                {assignee}
+              </span>
+            ))}
           </span>
         )}
       </span>
-    </button>
+    </article>
   );
 }
 
@@ -1133,6 +1203,7 @@ function CardCreateDrawer({
     dueDate: string;
     content: string;
     checklist: ChecklistItem[];
+    recurrence: CardRecurrence;
   }) => void;
 }) {
   const [title, setTitle] = useState("");
@@ -1140,6 +1211,7 @@ function CardCreateDrawer({
   const [labelsInput, setLabelsInput] = useState("");
   const [assigneesInput, setAssigneesInput] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [recurrence, setRecurrence] = useState<CardRecurrence>("none");
   const [content, setContent] = useState("");
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [checklistInput, setChecklistInput] = useState("");
@@ -1161,6 +1233,7 @@ function CardCreateDrawer({
       dueDate,
       content,
       checklist,
+      recurrence,
     });
   }
 
@@ -1238,6 +1311,17 @@ function CardCreateDrawer({
             onChange={(event) => setDueDate(event.target.value)}
           />
         </label>
+        <label className="event-dialog-field">
+          <span className="event-dialog-label">Recurrence</span>
+          <select
+            className="event-dialog-input"
+            value={recurrence}
+            onChange={(event) => setRecurrence(event.target.value as CardRecurrence)}
+          >
+            <option value="none">No recurrence</option>
+            <option value="daily">Every day</option>
+          </select>
+        </label>
         <section className="knowledge-checklist">
           <div className="knowledge-related-head">
             <h3>Checklist</h3>
@@ -1308,6 +1392,8 @@ function EntityDrawer({
   entity,
   onClose,
   onUpdated,
+  onClosed,
+  onDeleted,
   onRelatedCreated,
 }: {
   workspaceId: string;
@@ -1315,6 +1401,8 @@ function EntityDrawer({
   entity: Entity;
   onClose: () => void;
   onUpdated: (entity: Entity) => void;
+  onClosed: (entity: Entity) => void;
+  onDeleted: (entity: Entity) => void;
   onRelatedCreated: (entity: Entity) => void;
 }) {
   const [title, setTitle] = useState(entity.title);
@@ -1323,6 +1411,9 @@ function EntityDrawer({
   const [labelsInput, setLabelsInput] = useState(stringListProp(entity, "labels").join(", "));
   const [assigneesInput, setAssigneesInput] = useState(stringListProp(entity, "assignees").join(", "));
   const [dueDate, setDueDate] = useState(stringProp(entity, "due_date"));
+  const [recurrence, setRecurrence] = useState<CardRecurrence>(
+    stringProp(entity, "recurrence") === "daily" ? "daily" : "none",
+  );
   const [checklist, setChecklist] = useState<ChecklistItem[]>(checklistProp(entity));
   const [checklistInput, setChecklistInput] = useState("");
   const [related, setRelated] = useState<RelatedEntity[]>([]);
@@ -1347,6 +1438,7 @@ function EntityDrawer({
     setLabelsInput(stringListProp(entity, "labels").join(", "));
     setAssigneesInput(stringListProp(entity, "assignees").join(", "));
     setDueDate(stringProp(entity, "due_date"));
+    setRecurrence(stringProp(entity, "recurrence") === "daily" ? "daily" : "none");
     setChecklist(checklistProp(entity));
     setDrawerError(null);
     void loadRelated();
@@ -1368,6 +1460,7 @@ function EntityDrawer({
           assignees,
           due_date: dueDate,
           checklist,
+          recurrence,
         },
       }),
     });
@@ -1461,6 +1554,22 @@ function EntityDrawer({
 
       <div className="knowledge-drawer-body">
         {drawerError && <p className="form-error">{drawerError}</p>}
+        <div className="knowledge-drawer-actions">
+          {!boolProp(entity, "completed") && (
+            <Button type="button" onClick={() => onClosed(entity)}>
+              <CheckCircle2 />
+              Complete
+            </Button>
+          )}
+          <button
+            type="button"
+            className="knowledge-danger-button"
+            onClick={() => onDeleted(entity)}
+          >
+            <Trash2 size={16} />
+            Delete
+          </button>
+        </div>
 
         <label className="event-dialog-field">
           <span className="event-dialog-label">Title</span>
@@ -1520,6 +1629,17 @@ function EntityDrawer({
             value={dueDate}
             onChange={(event) => setDueDate(event.target.value)}
           />
+        </label>
+        <label className="event-dialog-field">
+          <span className="event-dialog-label">Recurrence</span>
+          <select
+            className="event-dialog-input"
+            value={recurrence}
+            onChange={(event) => setRecurrence(event.target.value as CardRecurrence)}
+          >
+            <option value="none">No recurrence</option>
+            <option value="daily">Every day</option>
+          </select>
         </label>
 
         <section className="knowledge-checklist">
