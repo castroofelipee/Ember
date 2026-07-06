@@ -2361,9 +2361,12 @@
 
 .knowledge-doc-tree-children {
   gap: 0.04rem;
-  padding-left: 1rem;
+  margin-left: 0.75rem;
+  padding-left: 0.45rem;
+  border-left: 1px solid #2b2b2b;
 }
 
+.knowledge-doc-workspace,
 .knowledge-doc-folder,
 .knowledge-doc-file {
   width: 100%;
@@ -2381,6 +2384,15 @@
   cursor: pointer;
 }
 
+.knowledge-doc-workspace {
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 2rem;
+  color: #e0e0e0;
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
 .knowledge-doc-folder {
   grid-template-columns: auto minmax(0, 1fr);
   font-size: 0.85rem;
@@ -2393,6 +2405,7 @@
   font-size: 0.84rem;
 }
 
+.knowledge-doc-workspace span,
 .knowledge-doc-folder span,
 .knowledge-doc-file span {
   overflow: hidden;
@@ -2400,8 +2413,10 @@
   white-space: nowrap;
 }
 
+.knowledge-doc-workspace:hover,
 .knowledge-doc-folder:hover,
 .knowledge-doc-file:hover,
+.knowledge-doc-workspace--active,
 .knowledge-doc-folder--active,
 .knowledge-doc-file--active {
   background: #2a2a2a;

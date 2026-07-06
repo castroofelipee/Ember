@@ -81,3 +81,30 @@ async def test_move_board_column_in_others_workspace_returns_404(client: AsyncCl
     )
 
     assert response.status_code == 404
+
+
+async def test_create_folder_inside_folder(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+
+    parent = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+        json={"title": "Projects", "parent_id": None},
+    )
+    child = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+        json={"title": "Ember", "parent_id": parent.json()["id"]},
+    )
+
+    assert child.status_code == 201
+    assert child.json()["parent_id"] == parent.json()["id"]
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+    )
+    folders = {folder["title"]: folder for folder in listed.json()}
+    assert folders["Projects"]["parent_id"] is None
+    assert folders["Ember"]["parent_id"] == folders["Projects"]["id"]

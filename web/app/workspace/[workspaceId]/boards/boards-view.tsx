@@ -498,7 +498,7 @@ export function BoardsView() {
         {
           method: "POST",
           headers: apiHeaders(accessToken),
-          body: JSON.stringify({ title: folderTitle.trim(), parent_id: null }),
+          body: JSON.stringify({ title: folderTitle.trim(), parent_id: activeFolderId }),
         },
         "Could not create folder.",
       );
@@ -1012,6 +1012,19 @@ function DocsPanel({
   onUpdated: (entity: Entity) => void;
 }) {
   const rootDocuments = documents.filter((document) => !stringProp(document, "folder_id"));
+  const folderIds = useMemo(() => new Set(folders.map((folder) => folder.id)), [folders]);
+  const rootFolders = useMemo(
+    () => folders.filter((folder) => !folder.parent_id || !folderIds.has(folder.parent_id)),
+    [folderIds, folders],
+  );
+  const childFolderMap = useMemo(() => {
+    const map = new Map<string, KnowledgeFolder[]>();
+    folders.forEach((folder) => {
+      if (!folder.parent_id) return;
+      map.set(folder.parent_id, [...(map.get(folder.parent_id) ?? []), folder]);
+    });
+    return map;
+  }, [folders]);
   const folderDocumentMap = useMemo(() => {
     const map = new Map<string, Entity[]>();
     folders.forEach((folder) => map.set(folder.id, []));
@@ -1022,6 +1035,8 @@ function DocsPanel({
     });
     return map;
   }, [documents, folders]);
+  const activeFolder = folders.find((folder) => folder.id === activeFolderId) ?? null;
+  const createTarget = activeFolder?.title ?? "Workspace";
 
   return (
     <div className="knowledge-doc-layout">
@@ -1047,7 +1062,7 @@ function DocsPanel({
             onKeyDown={(event) => {
               if (event.key === "Enter") onCreateDocument();
             }}
-            placeholder="Document title"
+            placeholder={`Document in ${createTarget}`}
           />
           <button type="button" aria-label="Create document" onClick={onCreateDocument}>
             <FilePlus size={15} />
@@ -1061,7 +1076,7 @@ function DocsPanel({
             onKeyDown={(event) => {
               if (event.key === "Enter") onCreateFolder();
             }}
-            placeholder="Folder name"
+            placeholder={`Folder in ${createTarget}`}
           />
           <button type="button" aria-label="Create folder" onClick={onCreateFolder}>
             <FolderPlus size={15} />
@@ -1069,52 +1084,34 @@ function DocsPanel({
         </div>
 
         <nav className="knowledge-doc-tree" aria-label="Documents">
-          <div className="knowledge-doc-tree-section">
-            <button
-              type="button"
-              className={`knowledge-doc-folder${activeFolderId === null ? " knowledge-doc-folder--active" : ""}`}
-              onClick={() => onSelectFolder(null)}
-            >
-              <Folder size={15} />
-              <span>Root</span>
-            </button>
-            <div className="knowledge-doc-tree-children">
-              {rootDocuments.map((document) => (
-                <DocTreeItem
-                  key={document.id}
-                  document={document}
-                  active={selectedDocument?.id === document.id}
-                  onSelect={() => onSelectDocument(document)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {folders.map((folder) => {
-            const folderDocuments = folderDocumentMap.get(folder.id) ?? [];
-            return (
-              <div className="knowledge-doc-tree-section" key={folder.id}>
-                <button
-                  type="button"
-                  className={`knowledge-doc-folder${activeFolderId === folder.id ? " knowledge-doc-folder--active" : ""}`}
-                  onClick={() => onSelectFolder(folder.id)}
-                >
-                  <Folder size={15} />
-                  <span>{folder.title}</span>
-                </button>
-                <div className="knowledge-doc-tree-children">
-                  {folderDocuments.map((document) => (
-                    <DocTreeItem
-                      key={document.id}
-                      document={document}
-                      active={selectedDocument?.id === document.id}
-                      onSelect={() => onSelectDocument(document)}
-                    />
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+          <button
+            type="button"
+            className={`knowledge-doc-workspace${activeFolderId === null ? " knowledge-doc-workspace--active" : ""}`}
+            onClick={() => onSelectFolder(null)}
+          >
+            <Folder size={15} />
+            <span>Workspace</span>
+          </button>
+          {rootFolders.map((folder) => (
+            <FolderTreeItem
+              key={folder.id}
+              folder={folder}
+              activeFolderId={activeFolderId}
+              selectedDocument={selectedDocument}
+              childFolderMap={childFolderMap}
+              folderDocumentMap={folderDocumentMap}
+              onSelectFolder={onSelectFolder}
+              onSelectDocument={onSelectDocument}
+            />
+          ))}
+          {rootDocuments.map((document) => (
+            <DocTreeItem
+              key={document.id}
+              document={document}
+              active={selectedDocument?.id === document.id}
+              onSelect={() => onSelectDocument(document)}
+            />
+          ))}
         </nav>
       </aside>
 
@@ -1130,6 +1127,64 @@ function DocsPanel({
           <FileText size={24} />
           <h2>No file is open</h2>
         </section>
+      )}
+    </div>
+  );
+}
+
+function FolderTreeItem({
+  folder,
+  activeFolderId,
+  selectedDocument,
+  childFolderMap,
+  folderDocumentMap,
+  onSelectFolder,
+  onSelectDocument,
+}: {
+  folder: KnowledgeFolder;
+  activeFolderId: string | null;
+  selectedDocument: Entity | null;
+  childFolderMap: Map<string, KnowledgeFolder[]>;
+  folderDocumentMap: Map<string, Entity[]>;
+  onSelectFolder: (folderId: string) => void;
+  onSelectDocument: (entity: Entity) => void;
+}) {
+  const childFolders = childFolderMap.get(folder.id) ?? [];
+  const folderDocuments = folderDocumentMap.get(folder.id) ?? [];
+
+  return (
+    <div className="knowledge-doc-tree-section">
+      <button
+        type="button"
+        className={`knowledge-doc-folder${activeFolderId === folder.id ? " knowledge-doc-folder--active" : ""}`}
+        onClick={() => onSelectFolder(folder.id)}
+      >
+        <Folder size={15} />
+        <span>{folder.title}</span>
+      </button>
+      {(childFolders.length > 0 || folderDocuments.length > 0) && (
+        <div className="knowledge-doc-tree-children">
+          {childFolders.map((child) => (
+            <FolderTreeItem
+              key={child.id}
+              folder={child}
+              activeFolderId={activeFolderId}
+              selectedDocument={selectedDocument}
+              childFolderMap={childFolderMap}
+              folderDocumentMap={folderDocumentMap}
+              onSelectFolder={onSelectFolder}
+              onSelectDocument={onSelectDocument}
+            />
+          ))}
+          {folderDocuments.map((document) => (
+            <DocTreeItem
+              key={document.id}
+              document={document}
+              active={selectedDocument?.id === document.id}
+              onSelect={() => onSelectDocument(document)}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
