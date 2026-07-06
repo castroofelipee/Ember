@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -13,6 +13,7 @@ import {
   FileText,
   Folder,
   FolderPlus,
+  GripVertical,
   Link2,
   Mail,
   Pencil,
@@ -68,6 +69,7 @@ const RELATED_TYPES: { value: EntityType; label: string }[] = [
 
 type ViewMode = "board" | "docs";
 type CardRecurrence = "none" | "daily";
+type ColumnDropHint = { columnId: string; edge: "before" | "after" } | null;
 
 function typeLabel(type: EntityType): string {
   return ENTITY_TYPES.find((item) => item.value === type)?.label ?? type;
@@ -181,6 +183,8 @@ export function BoardsView() {
   const [folderTitle, setFolderTitle] = useState("");
   const [documentTitle, setDocumentTitle] = useState("");
   const [draggingEntityId, setDraggingEntityId] = useState<string | null>(null);
+  const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
+  const [columnDropHint, setColumnDropHint] = useState<ColumnDropHint>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -385,6 +389,28 @@ export function BoardsView() {
     }
   }
 
+  async function moveColumn(column: BoardColumn, position: number) {
+    if (!activeBoard) return;
+    try {
+      const board = await jsonRequest<Board>(
+        `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/columns/${column.id}`,
+        {
+          method: "PATCH",
+          headers: apiHeaders(accessToken),
+          body: JSON.stringify({ position }),
+        },
+        "Could not move column.",
+      );
+      setBoards((prev) => prev.map((item) => (item.id === board.id ? board : item)));
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not move column.");
+    } finally {
+      setDraggingColumnId(null);
+      setColumnDropHint(null);
+    }
+  }
+
   async function deleteColumn(column: BoardColumn) {
     if (!activeBoard) return;
     try {
@@ -419,6 +445,49 @@ export function BoardsView() {
       setBoards((prev) => prev.map((item) => (item.id === board.id ? board : item)));
     }
     setDraggingEntityId(null);
+  }
+
+  function handleColumnDragStart(columnId: string) {
+    setDraggingColumnId(columnId);
+    setDraggingEntityId(null);
+  }
+
+  function handleColumnDragOver(column: BoardColumn, event: DragEvent<HTMLElement>) {
+    if (!activeBoard || !draggingColumnId) return;
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const edge = event.clientX < rect.left + rect.width / 2 ? "before" : "after";
+    setColumnDropHint({ columnId: column.id, edge });
+  }
+
+  async function handleColumnDrop(column: BoardColumn, event: DragEvent<HTMLElement>) {
+    if (!activeBoard || !draggingColumnId) return;
+    event.preventDefault();
+    const dragged = activeBoard.columns.find((item) => item.id === draggingColumnId);
+    if (!dragged) return;
+
+    const columns = [...activeBoard.columns].sort((a, b) => a.position - b.position);
+    const withoutDragged = columns.filter((item) => item.id !== dragged.id);
+    const targetIndex = withoutDragged.findIndex((item) => item.id === column.id);
+    if (targetIndex < 0) {
+      setDraggingColumnId(null);
+      setColumnDropHint(null);
+      return;
+    }
+
+    const edge =
+      columnDropHint?.columnId === column.id
+        ? columnDropHint.edge
+        : event.clientX < event.currentTarget.getBoundingClientRect().left + event.currentTarget.getBoundingClientRect().width / 2
+          ? "before"
+          : "after";
+    const position = targetIndex + (edge === "after" ? 1 : 0);
+    if (position === dragged.position) {
+      setDraggingColumnId(null);
+      setColumnDropHint(null);
+      return;
+    }
+    await moveColumn(dragged, position);
   }
 
   async function createFolder() {
@@ -638,8 +707,21 @@ export function BoardsView() {
           onCreateCard={(column) => setCreatingCardColumn(column)}
           onUpdateColumn={updateColumn}
           onDeleteColumn={deleteColumn}
-          onDragStart={setDraggingEntityId}
+          onDragStart={(entityId) => {
+            setDraggingEntityId(entityId);
+            setDraggingColumnId(null);
+            setColumnDropHint(null);
+          }}
           onDropColumn={moveCard}
+          draggingColumnId={draggingColumnId}
+          columnDropHint={columnDropHint}
+          onColumnDragStart={handleColumnDragStart}
+          onColumnDragOver={handleColumnDragOver}
+          onColumnDrop={handleColumnDrop}
+          onColumnDragEnd={() => {
+            setDraggingColumnId(null);
+            setColumnDropHint(null);
+          }}
           onSelectEntity={setSelectedEntity}
           onCloseCard={closeCard}
           onDeleteCard={deleteCard}
@@ -673,6 +755,8 @@ function BoardPanel({
   activeBoard,
   columnTitle,
   selectedEntity,
+  draggingColumnId,
+  columnDropHint,
   onColumnTitleChange,
   onCreateColumn,
   onCreateCard,
@@ -680,6 +764,10 @@ function BoardPanel({
   onDeleteColumn,
   onDragStart,
   onDropColumn,
+  onColumnDragStart,
+  onColumnDragOver,
+  onColumnDrop,
+  onColumnDragEnd,
   onSelectEntity,
   onCloseCard,
   onDeleteCard,
@@ -687,6 +775,8 @@ function BoardPanel({
   activeBoard: Board | null;
   columnTitle: string;
   selectedEntity: Entity | null;
+  draggingColumnId: string | null;
+  columnDropHint: ColumnDropHint;
   onColumnTitleChange: (value: string) => void;
   onCreateColumn: () => void;
   onCreateCard: (column: BoardColumn) => void;
@@ -694,6 +784,10 @@ function BoardPanel({
   onDeleteColumn: (column: BoardColumn) => void;
   onDragStart: (entityId: string) => void;
   onDropColumn: (column: BoardColumn) => void;
+  onColumnDragStart: (columnId: string) => void;
+  onColumnDragOver: (column: BoardColumn, event: DragEvent<HTMLElement>) => void;
+  onColumnDrop: (column: BoardColumn, event: DragEvent<HTMLElement>) => void;
+  onColumnDragEnd: () => void;
   onSelectEntity: (entity: Entity) => void;
   onCloseCard: (entity: Entity) => void;
   onDeleteCard: (entity: Entity) => void;
@@ -741,22 +835,37 @@ function BoardPanel({
         </section>
       ) : (
         <section className="knowledge-board">
-          {activeBoard.columns.map((column) => {
+          {[...activeBoard.columns].sort((a, b) => a.position - b.position).map((column) => {
             const cards = activeBoard.cards
               .filter((card) => card.column_id === column.id)
               .sort((a, b) => a.position - b.position);
+            const dropClass =
+              columnDropHint?.columnId === column.id
+                ? ` knowledge-column--drop-${columnDropHint.edge}`
+                : "";
             return (
               <div
-                className="knowledge-column"
+                className={`knowledge-column${draggingColumnId === column.id ? " knowledge-column--dragging" : ""}${dropClass}`}
                 key={column.id}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => onDropColumn(column)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (draggingColumnId) onColumnDragOver(column, event);
+                }}
+                onDrop={(event) => {
+                  if (draggingColumnId) {
+                    void onColumnDrop(column, event);
+                    return;
+                  }
+                  onDropColumn(column);
+                }}
               >
                 <ColumnHeader
                   column={column}
                   count={cards.length}
                   onUpdate={onUpdateColumn}
                   onDelete={onDeleteColumn}
+                  onDragStart={onColumnDragStart}
+                  onDragEnd={onColumnDragEnd}
                 />
                 <div className="knowledge-card-list">
                   {cards.map((card) => (
@@ -765,7 +874,10 @@ function BoardPanel({
                       card={card}
                       active={selectedEntity?.id === card.entity.id}
                       onSelect={() => onSelectEntity(card.entity)}
-                      onDragStart={() => onDragStart(card.entity.id)}
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData("application/x-ember-board-card", card.entity.id);
+                        onDragStart(card.entity.id);
+                      }}
                       onClose={() => onCloseCard(card.entity)}
                       onDelete={() => onDeleteCard(card.entity)}
                     />
@@ -793,11 +905,15 @@ function ColumnHeader({
   count,
   onUpdate,
   onDelete,
+  onDragStart,
+  onDragEnd,
 }: {
   column: BoardColumn;
   count: number;
   onUpdate: (column: BoardColumn, title: string) => void;
   onDelete: (column: BoardColumn) => void;
+  onDragStart: (columnId: string) => void;
+  onDragEnd: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -808,6 +924,20 @@ function ColumnHeader({
 
   return (
     <div className="knowledge-column-head">
+      <button
+        type="button"
+        className="knowledge-column-drag"
+        draggable
+        aria-label="Move column"
+        onDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("application/x-ember-board-column", column.id);
+          onDragStart(column.id);
+        }}
+        onDragEnd={onDragEnd}
+      >
+        <GripVertical size={15} />
+      </button>
       {editing ? (
         <input
           className="event-dialog-input"
@@ -1105,7 +1235,7 @@ function BoardCardView({
   card: BoardCard;
   active: boolean;
   onSelect: () => void;
-  onDragStart: () => void;
+  onDragStart: (event: DragEvent<HTMLElement>) => void;
   onClose: () => void;
   onDelete: () => void;
 }) {

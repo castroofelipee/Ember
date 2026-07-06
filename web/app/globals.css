@@ -1786,6 +1786,33 @@
   background: #181818;
   display: flex;
   flex-direction: column;
+  position: relative;
+  transition: border-color 0.12s ease, opacity 0.12s ease;
+}
+
+.knowledge-column--dragging {
+  opacity: 0.58;
+}
+
+.knowledge-column--drop-before::before,
+.knowledge-column--drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0.65rem;
+  bottom: 0.65rem;
+  width: 3px;
+  border-radius: 999px;
+  background: #f5f5f5;
+  box-shadow: 0 0 0 3px rgba(245, 245, 245, 0.16);
+  z-index: 2;
+}
+
+.knowledge-column--drop-before::before {
+  left: -0.45rem;
+}
+
+.knowledge-column--drop-after::after {
+  right: -0.45rem;
 }
 
 .knowledge-column-head {
@@ -1801,6 +1828,8 @@
   margin: 0;
   font-size: 0.9rem;
   font-weight: 650;
+  flex: 1;
+  min-width: 0;
 }
 
 .knowledge-column-actions {
@@ -1837,6 +1866,28 @@
 .knowledge-column-actions button:hover {
   background: #2a2a2a;
   color: #ffffff;
+}
+
+.knowledge-column-drag {
+  width: 1.5rem;
+  height: 1.7rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: #8f8f8f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+
+.knowledge-column-drag:hover {
+  background: #252525;
+  color: #ffffff;
+}
+
+.knowledge-column-drag:active {
+  cursor: grabbing;
 }
 
 .knowledge-card-list {

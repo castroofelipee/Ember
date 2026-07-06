@@ -159,12 +159,15 @@ class BoardColumnCreateRequest(BaseModel):
 
 
 class BoardColumnUpdateRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=120)
+    title: str | None = Field(default=None, min_length=1, max_length=120)
     status_key: str | None = Field(default=None, max_length=80)
+    position: int | None = Field(default=None, ge=0)
 
     @field_validator("title")
     @classmethod
-    def normalize_title(cls, value: str) -> str:
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         stripped = value.strip()
         if not stripped:
             raise ValueError("title must not be blank")

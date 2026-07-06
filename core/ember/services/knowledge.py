@@ -328,8 +328,26 @@ async def update_board_column(
     column: BoardColumn,
     data: BoardColumnUpdateRequest,
 ) -> BoardColumn:
-    column.title = data.title
-    column.status_key = data.status_key or status_key_for_title(data.title)
+    if data.title is not None:
+        column.title = data.title
+        column.status_key = data.status_key or status_key_for_title(data.title)
+    elif data.status_key is not None:
+        column.status_key = data.status_key
+
+    if data.position is not None:
+        columns = await list_board_columns(session, column.board_id)
+        ordered = [item for item in columns if item.id != column.id]
+        insert_at = min(data.position, len(ordered))
+        ordered.insert(insert_at, column)
+
+        offset = len(ordered)
+        for index, item in enumerate(columns):
+            item.position = offset + index
+        await session.flush()
+
+        for index, item in enumerate(ordered):
+            item.position = index
+
     await session.flush()
     await session.refresh(column)
     return column
