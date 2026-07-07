@@ -1,7 +1,8 @@
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ember.models import WorkspaceRole
+from ember.models import UserPreferences, WorkspaceRole
 from ember.schemas.auth import SignupRequest
 from ember.schemas.workspaces import WorkspaceCreateRequest
 from ember.services.auth import signup
@@ -68,6 +69,44 @@ async def test_assert_workspace_member_raises_for_non_member(db_session: AsyncSe
 
     with pytest.raises(NotAWorkspaceMemberError):
         await assert_workspace_member(db_session, workspace.id, outsider.id)
+
+
+async def test_create_workspace_gives_owner_default_preferences(db_session: AsyncSession) -> None:
+    user = await _create_user(db_session)
+
+    workspace = await create_workspace(db_session, user.id, WorkspaceCreateRequest(name="Home"))
+
+    preferences = (
+        await db_session.execute(
+            select(UserPreferences).where(
+                UserPreferences.user_id == user.id,
+                UserPreferences.workspace_id == workspace.id,
+            )
+        )
+    ).scalar_one()
+    assert preferences.timezone == "UTC"
+    assert preferences.work_day_start == 9
+    assert preferences.work_day_end == 17
+
+
+async def test_creating_two_workspaces_gives_separate_preferences_rows(
+    db_session: AsyncSession,
+) -> None:
+    user = await _create_user(db_session)
+
+    home = await create_workspace(db_session, user.id, WorkspaceCreateRequest(name="Home"))
+    work = await create_workspace(db_session, user.id, WorkspaceCreateRequest(name="Work"))
+
+    rows = (
+        (
+            await db_session.execute(
+                select(UserPreferences).where(UserPreferences.user_id == user.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {row.workspace_id for row in rows} == {home.id, work.id}
 
 
 async def test_workspace_name_is_trimmed(db_session: AsyncSession) -> None:

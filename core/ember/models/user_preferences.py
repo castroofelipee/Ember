@@ -1,7 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, SmallInteger, String
+from sqlalchemy import CheckConstraint, ForeignKey, Index, SmallInteger, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ember.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -11,10 +11,17 @@ if TYPE_CHECKING:
 
 
 class UserPreferences(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """One row per (user, workspace): each workspace gets its own schedule and
+    display settings rather than one global configuration following the user
+    everywhere."""
+
     __tablename__ = "user_preferences"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     timezone: Mapped[str] = mapped_column(
         String(64), nullable=False, default="UTC", server_default="UTC"
@@ -42,6 +49,8 @@ class UserPreferences(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     user: Mapped["User"] = relationship(back_populates="preferences")
 
     __table_args__ = (
+        UniqueConstraint("user_id", "workspace_id", name="uq_user_preferences_user_id_workspace_id"),
+        Index("ix_user_preferences_workspace_id", "workspace_id"),
         CheckConstraint(
             "week_starts_on >= 0 AND week_starts_on <= 6",
             name="week_starts_on_range",

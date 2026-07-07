@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ember.models import Credential, User, UserPreferences
+from ember.models import Credential, User
 from ember.schemas.auth import SignupRequest
 from ember.security import verify_password
 from ember.services.auth import EmailAlreadyRegisteredError, signup
@@ -28,7 +28,10 @@ async def _invite_code_from(db_session: AsyncSession, inviter_id: uuid.UUID) -> 
     return raw_code
 
 
-async def test_signup_creates_user_credential_and_preferences(db_session: AsyncSession) -> None:
+async def test_signup_creates_user_and_credential(db_session: AsyncSession) -> None:
+    """Preferences aren't created at signup — there's no workspace yet to scope
+    them to. Each workspace gets its own preferences row when it's created
+    (see test_workspaces_service.py)."""
     user, _, _ = await signup(db_session, _signup_data())
 
     assert user.id is not None
@@ -39,11 +42,6 @@ async def test_signup_creates_user_credential_and_preferences(db_session: AsyncS
         await db_session.execute(select(Credential).where(Credential.user_id == user.id))
     ).scalar_one()
     assert verify_password(credential.password_hash, "correct horse battery")
-
-    preferences = (
-        await db_session.execute(select(UserPreferences).where(UserPreferences.user_id == user.id))
-    ).scalar_one()
-    assert preferences.timezone == "UTC"
 
 
 async def test_signup_never_stores_plaintext_password(db_session: AsyncSession) -> None:

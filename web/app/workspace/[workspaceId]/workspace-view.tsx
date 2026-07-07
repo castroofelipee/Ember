@@ -217,7 +217,7 @@ export function WorkspaceView() {
 
     // Preferences drive how the week renders (start day, working hours, time
     // format); a failure just falls back to the defaults already in state.
-    fetch("/api/users/me/preferences", {
+    fetch(`/api/workspaces/${workspaceId}/preferences`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     }).then(async (response) => {
       if (cancelled) return;

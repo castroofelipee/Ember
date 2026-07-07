@@ -8,16 +8,37 @@ from ember.models import UserPreferences
 from ember.schemas.users import PreferencesUpdateRequest
 
 
-async def get_preferences(session: AsyncSession, user_id: uuid.UUID) -> UserPreferences:
-    return (
-        await session.execute(select(UserPreferences).where(UserPreferences.user_id == user_id))
-    ).scalar_one()
+async def get_preferences(
+    session: AsyncSession, user_id: uuid.UUID, workspace_id: uuid.UUID
+) -> UserPreferences:
+    preferences = (
+        await session.execute(
+            select(UserPreferences).where(
+                UserPreferences.user_id == user_id,
+                UserPreferences.workspace_id == workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if preferences is None:
+        # Every workspace membership is created together with a preferences row
+        # (see create_workspace); this only backfills members added before that
+        # pairing existed.
+        preferences = UserPreferences(user_id=user_id, workspace_id=workspace_id)
+        session.add(preferences)
+        await session.flush()
+        await session.refresh(preferences)
+
+    return preferences
 
 
 async def update_preferences(
-    session: AsyncSession, user_id: uuid.UUID, data: PreferencesUpdateRequest
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    data: PreferencesUpdateRequest,
 ) -> UserPreferences:
-    preferences = await get_preferences(session, user_id)
+    preferences = await get_preferences(session, user_id, workspace_id)
 
     if data.locale is not None:
         preferences.locale = data.locale

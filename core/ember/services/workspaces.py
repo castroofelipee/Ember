@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ember.models import Workspace, WorkspaceMember, WorkspaceRole
+from ember.models import UserPreferences, Workspace, WorkspaceMember, WorkspaceRole
 from ember.schemas.workspaces import WorkspaceCreateRequest
 
 
@@ -23,6 +23,9 @@ async def create_workspace(
     session.add(
         WorkspaceMember(workspace_id=workspace.id, user_id=owner_id, role=WorkspaceRole.OWNER)
     )
+    # Each workspace gets its own schedule/settings for the member, rather than
+    # inheriting one global configuration shared across every workspace.
+    session.add(UserPreferences(user_id=owner_id, workspace_id=workspace.id))
     await session.flush()
     return workspace
 
