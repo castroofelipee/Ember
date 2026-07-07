@@ -23,6 +23,7 @@ from ember.schemas.knowledge import (
     EntityUpdateRequest,
     KnowledgeFolderCreateRequest,
     KnowledgeFolderResponse,
+    KnowledgeFolderUpdateRequest,
     RelatedEntityResponse,
     RelationCreateRequest,
     RelationResponse,
@@ -48,6 +49,7 @@ from ember.services.knowledge import (
     list_entities,
     list_related,
     move_board_card,
+    update_folder,
     update_board_column,
     update_entity,
 )
@@ -210,6 +212,45 @@ async def list_folders_route(
     await _require_membership(db, workspace_id, current_user.id)
     folders = await list_folders(db, workspace_id)
     return [KnowledgeFolderResponse.model_validate(folder) for folder in folders]
+
+
+@router.patch("/{workspace_id}/folders/{folder_id}")
+async def update_folder_route(
+    workspace_id: uuid.UUID,
+    folder_id: uuid.UUID,
+    data: KnowledgeFolderUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> KnowledgeFolderResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    folder = await get_folder(db, workspace_id, folder_id)
+    if folder is None:
+        raise _NOT_FOUND
+
+    fields = data.model_fields_set
+    if "parent_id" in fields and data.parent_id is not None:
+        if data.parent_id == folder.id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="A folder cannot be moved inside itself.",
+            )
+        parent = await get_folder(db, workspace_id, data.parent_id)
+        if parent is None:
+            raise _NOT_FOUND
+
+        folders = await list_folders(db, workspace_id)
+        parent_by_id = {item.id: item.parent_id for item in folders}
+        cursor = data.parent_id
+        while cursor is not None:
+            if cursor == folder.id:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="A folder cannot be moved inside one of its descendants.",
+                )
+            cursor = parent_by_id.get(cursor)
+
+    updated = await update_folder(db, folder, data)
+    return KnowledgeFolderResponse.model_validate(updated)
 
 
 @router.post("/{workspace_id}/documents", status_code=status.HTTP_201_CREATED)

@@ -66,6 +66,22 @@ class KnowledgeFolderCreateRequest(BaseModel):
         return stripped
 
 
+class KnowledgeFolderUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    parent_id: uuid.UUID | None = None
+    position: int | None = Field(default=None, ge=0)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("title must not be blank")
+        return stripped
+
+
 class KnowledgeFolderResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID

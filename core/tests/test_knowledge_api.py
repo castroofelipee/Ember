@@ -108,3 +108,74 @@ async def test_create_folder_inside_folder(client: AsyncClient) -> None:
     folders = {folder["title"]: folder for folder in listed.json()}
     assert folders["Projects"]["parent_id"] is None
     assert folders["Ember"]["parent_id"] == folders["Projects"]["id"]
+
+
+async def test_move_folder_inside_another_folder(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    parent = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+        json={"title": "Projects", "parent_id": None},
+    )
+    child = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+        json={"title": "Ember", "parent_id": None},
+    )
+
+    moved = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/folders/{child.json()['id']}",
+        headers=_auth_header(token),
+        json={"parent_id": parent.json()["id"]},
+    )
+
+    assert moved.status_code == 200
+    assert moved.json()["parent_id"] == parent.json()["id"]
+
+
+async def test_move_folder_back_to_root(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    parent = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+        json={"title": "Projects", "parent_id": None},
+    )
+    child = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+        json={"title": "Ember", "parent_id": parent.json()["id"]},
+    )
+
+    moved = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/folders/{child.json()['id']}",
+        headers=_auth_header(token),
+        json={"parent_id": None},
+    )
+
+    assert moved.status_code == 200
+    assert moved.json()["parent_id"] is None
+
+
+async def test_move_folder_inside_descendant_returns_422(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    parent = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+        json={"title": "Projects", "parent_id": None},
+    )
+    child = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/folders",
+        headers=_auth_header(token),
+        json={"title": "Ember", "parent_id": parent.json()["id"]},
+    )
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/folders/{parent.json()['id']}",
+        headers=_auth_header(token),
+        json={"parent_id": child.json()["id"]},
+    )
+
+    assert response.status_code == 422

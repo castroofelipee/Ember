@@ -6,6 +6,8 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CalendarDays,
+  ChevronDown,
+  ChevronRight,
   CheckCircle2,
   CheckSquare,
   Columns3,
@@ -70,6 +72,7 @@ const RELATED_TYPES: { value: EntityType; label: string }[] = [
 type ViewMode = "board" | "docs";
 type CardRecurrence = "none" | "daily";
 type ColumnDropHint = { columnId: string; edge: "before" | "after" } | null;
+type FolderDropTarget = string | "workspace" | null;
 
 function typeLabel(type: EntityType): string {
   return ENTITY_TYPES.find((item) => item.value === type)?.label ?? type;
@@ -511,6 +514,24 @@ export function BoardsView() {
     }
   }
 
+  async function moveFolder(folderId: string, parentId: string | null) {
+    try {
+      const folder = await jsonRequest<KnowledgeFolder>(
+        `/api/workspaces/${workspaceId}/folders/${folderId}`,
+        {
+          method: "PATCH",
+          headers: apiHeaders(accessToken),
+          body: JSON.stringify({ parent_id: parentId }),
+        },
+        "Could not move folder.",
+      );
+      setFolders((prev) => prev.map((item) => (item.id === folder.id ? folder : item)));
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not move folder.");
+    }
+  }
+
   async function createDocument() {
     if (!documentTitle.trim()) return;
     try {
@@ -621,6 +642,7 @@ export function BoardsView() {
           onFolderTitleChange={setFolderTitle}
           onCreateDocument={createDocument}
           onCreateFolder={createFolder}
+          onMoveFolder={moveFolder}
           onSelectFolder={setActiveFolderId}
           onSelectDocument={(document) => {
             setSelectedDocument(document);
@@ -990,6 +1012,7 @@ function DocsPanel({
   onFolderTitleChange,
   onCreateDocument,
   onCreateFolder,
+  onMoveFolder,
   onSelectFolder,
   onSelectDocument,
   onUpdated,
@@ -1007,10 +1030,14 @@ function DocsPanel({
   onFolderTitleChange: (value: string) => void;
   onCreateDocument: () => void;
   onCreateFolder: () => void;
+  onMoveFolder: (folderId: string, parentId: string | null) => void;
   onSelectFolder: (folderId: string | null) => void;
   onSelectDocument: (entity: Entity) => void;
   onUpdated: (entity: Entity) => void;
 }) {
+  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(() => new Set());
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [folderDropTarget, setFolderDropTarget] = useState<FolderDropTarget>(null);
   const rootDocuments = documents.filter((document) => !stringProp(document, "folder_id"));
   const folderIds = useMemo(() => new Set(folders.map((folder) => folder.id)), [folders]);
   const rootFolders = useMemo(
@@ -1037,6 +1064,40 @@ function DocsPanel({
   }, [documents, folders]);
   const activeFolder = folders.find((folder) => folder.id === activeFolderId) ?? null;
   const createTarget = activeFolder?.title ?? "Workspace";
+
+  function toggleFolder(folderId: string) {
+    setOpenFolderIds((current) => {
+      const next = new Set(current);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }
+
+  function canMoveFolder(folderId: string, targetParentId: string | null) {
+    if (folderId === targetParentId) return false;
+    const parentById = new Map(folders.map((folder) => [folder.id, folder.parent_id]));
+    let cursor = targetParentId;
+    while (cursor) {
+      if (cursor === folderId) return false;
+      cursor = parentById.get(cursor) ?? null;
+    }
+    return true;
+  }
+
+  function handleFolderDrop(targetParentId: string | null) {
+    if (!draggingFolderId || !canMoveFolder(draggingFolderId, targetParentId)) {
+      setDraggingFolderId(null);
+      setFolderDropTarget(null);
+      return;
+    }
+    onMoveFolder(draggingFolderId, targetParentId);
+    if (targetParentId) {
+      setOpenFolderIds((current) => new Set(current).add(targetParentId));
+    }
+    setDraggingFolderId(null);
+    setFolderDropTarget(null);
+  }
 
   return (
     <div className="knowledge-doc-layout">
@@ -1086,8 +1147,19 @@ function DocsPanel({
         <nav className="knowledge-doc-tree" aria-label="Documents">
           <button
             type="button"
-            className={`knowledge-doc-workspace${activeFolderId === null ? " knowledge-doc-workspace--active" : ""}`}
+            className={`knowledge-doc-workspace${activeFolderId === null ? " knowledge-doc-workspace--active" : ""}${
+              folderDropTarget === "workspace" ? " knowledge-doc-workspace--drop" : ""
+            }`}
             onClick={() => onSelectFolder(null)}
+            onDragOver={(event) => {
+              if (!draggingFolderId) return;
+              event.preventDefault();
+              setFolderDropTarget("workspace");
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              handleFolderDrop(null);
+            }}
           >
             <Folder size={15} />
             <span>Workspace</span>
@@ -1098,10 +1170,21 @@ function DocsPanel({
               folder={folder}
               activeFolderId={activeFolderId}
               selectedDocument={selectedDocument}
+              openFolderIds={openFolderIds}
+              draggingFolderId={draggingFolderId}
+              folderDropTarget={folderDropTarget}
               childFolderMap={childFolderMap}
               folderDocumentMap={folderDocumentMap}
               onSelectFolder={onSelectFolder}
               onSelectDocument={onSelectDocument}
+              onToggleFolder={toggleFolder}
+              onDragStart={setDraggingFolderId}
+              onDragEnd={() => {
+                setDraggingFolderId(null);
+                setFolderDropTarget(null);
+              }}
+              onDragOverFolder={setFolderDropTarget}
+              onDropFolder={handleFolderDrop}
             />
           ))}
           {rootDocuments.map((document) => (
@@ -1136,33 +1219,80 @@ function FolderTreeItem({
   folder,
   activeFolderId,
   selectedDocument,
+  openFolderIds,
+  draggingFolderId,
+  folderDropTarget,
   childFolderMap,
   folderDocumentMap,
   onSelectFolder,
   onSelectDocument,
+  onToggleFolder,
+  onDragStart,
+  onDragEnd,
+  onDragOverFolder,
+  onDropFolder,
 }: {
   folder: KnowledgeFolder;
   activeFolderId: string | null;
   selectedDocument: Entity | null;
+  openFolderIds: Set<string>;
+  draggingFolderId: string | null;
+  folderDropTarget: FolderDropTarget;
   childFolderMap: Map<string, KnowledgeFolder[]>;
   folderDocumentMap: Map<string, Entity[]>;
   onSelectFolder: (folderId: string) => void;
   onSelectDocument: (entity: Entity) => void;
+  onToggleFolder: (folderId: string) => void;
+  onDragStart: (folderId: string) => void;
+  onDragEnd: () => void;
+  onDragOverFolder: (folderId: string) => void;
+  onDropFolder: (folderId: string) => void;
 }) {
   const childFolders = childFolderMap.get(folder.id) ?? [];
   const folderDocuments = folderDocumentMap.get(folder.id) ?? [];
+  const hasChildren = childFolders.length > 0 || folderDocuments.length > 0;
+  const isOpen = openFolderIds.has(folder.id);
 
   return (
     <div className="knowledge-doc-tree-section">
       <button
         type="button"
-        className={`knowledge-doc-folder${activeFolderId === folder.id ? " knowledge-doc-folder--active" : ""}`}
+        className={`knowledge-doc-folder${activeFolderId === folder.id ? " knowledge-doc-folder--active" : ""}${
+          draggingFolderId === folder.id ? " knowledge-doc-folder--dragging" : ""
+        }${folderDropTarget === folder.id ? " knowledge-doc-folder--drop" : ""}`}
+        draggable
+        onDragStart={(event) => {
+          event.stopPropagation();
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("application/x-ember-folder", folder.id);
+          onDragStart(folder.id);
+        }}
+        onDragEnd={onDragEnd}
+        onDragOver={(event) => {
+          if (!draggingFolderId || draggingFolderId === folder.id) return;
+          event.preventDefault();
+          onDragOverFolder(folder.id);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onDropFolder(folder.id);
+        }}
         onClick={() => onSelectFolder(folder.id)}
       >
+        <span
+          className="knowledge-doc-folder-toggle"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (hasChildren) onToggleFolder(folder.id);
+          }}
+        >
+          {hasChildren && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
+        </span>
         <Folder size={15} />
         <span>{folder.title}</span>
       </button>
-      {(childFolders.length > 0 || folderDocuments.length > 0) && (
+      {isOpen && hasChildren && (
         <div className="knowledge-doc-tree-children">
           {childFolders.map((child) => (
             <FolderTreeItem
@@ -1170,10 +1300,18 @@ function FolderTreeItem({
               folder={child}
               activeFolderId={activeFolderId}
               selectedDocument={selectedDocument}
+              openFolderIds={openFolderIds}
+              draggingFolderId={draggingFolderId}
+              folderDropTarget={folderDropTarget}
               childFolderMap={childFolderMap}
               folderDocumentMap={folderDocumentMap}
               onSelectFolder={onSelectFolder}
               onSelectDocument={onSelectDocument}
+              onToggleFolder={onToggleFolder}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onDragOverFolder={onDragOverFolder}
+              onDropFolder={onDropFolder}
             />
           ))}
           {folderDocuments.map((document) => (

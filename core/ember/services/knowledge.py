@@ -20,6 +20,7 @@ from ember.schemas.knowledge import (
     EntityCreateRequest,
     EntityUpdateRequest,
     KnowledgeFolderCreateRequest,
+    KnowledgeFolderUpdateRequest,
     RelationCreateRequest,
 )
 
@@ -200,6 +201,57 @@ async def list_folders(
             .order_by(KnowledgeFolder.parent_id, KnowledgeFolder.position, KnowledgeFolder.title)
         )
     ).scalars().all()
+
+
+async def update_folder(
+    session: AsyncSession,
+    folder: KnowledgeFolder,
+    data: KnowledgeFolderUpdateRequest,
+) -> KnowledgeFolder:
+    changes = data.model_dump(exclude_unset=True)
+
+    if "title" in changes and data.title is not None:
+        folder.title = data.title
+
+    if "parent_id" in changes or data.position is not None:
+        new_parent_id = changes.get("parent_id", folder.parent_id)
+        siblings = (
+            await session.execute(
+                select(KnowledgeFolder)
+                .where(
+                    KnowledgeFolder.workspace_id == folder.workspace_id,
+                    KnowledgeFolder.parent_id == new_parent_id,
+                    KnowledgeFolder.id != folder.id,
+                )
+                .order_by(KnowledgeFolder.position, KnowledgeFolder.title)
+            )
+        ).scalars().all()
+        insert_at = min(data.position if data.position is not None else len(siblings), len(siblings))
+        ordered = [*siblings]
+        ordered.insert(insert_at, folder)
+
+        source_siblings = (
+            await session.execute(
+                select(KnowledgeFolder)
+                .where(
+                    KnowledgeFolder.workspace_id == folder.workspace_id,
+                    KnowledgeFolder.parent_id == folder.parent_id,
+                )
+                .order_by(KnowledgeFolder.position, KnowledgeFolder.title)
+            )
+        ).scalars().all()
+        offset = len(source_siblings) + len(ordered)
+        for index, item in enumerate(source_siblings):
+            item.position = offset + index
+        await session.flush()
+
+        folder.parent_id = new_parent_id
+        for index, item in enumerate(ordered):
+            item.position = index
+
+    await session.flush()
+    await session.refresh(folder)
+    return folder
 
 
 async def create_relation(

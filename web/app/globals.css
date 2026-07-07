@@ -2394,9 +2394,18 @@
 }
 
 .knowledge-doc-folder {
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 1rem auto minmax(0, 1fr);
   font-size: 0.85rem;
   font-weight: 650;
+}
+
+.knowledge-doc-folder-toggle {
+  width: 1rem;
+  min-width: 1rem;
+  color: #8f8f8f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .knowledge-doc-file {
@@ -2421,6 +2430,17 @@
 .knowledge-doc-file--active {
   background: #2a2a2a;
   color: #ffffff;
+}
+
+.knowledge-doc-workspace--drop,
+.knowledge-doc-folder--drop {
+  background: #263426;
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px #4d7c4d;
+}
+
+.knowledge-doc-folder--dragging {
+  opacity: 0.52;
 }
 
 .knowledge-doc-file--active {
