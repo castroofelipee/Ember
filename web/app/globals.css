@@ -1328,6 +1328,7 @@
 .mail-list-pane {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
   border-right: 1px solid #232323;
   background: #151515;
@@ -1382,6 +1383,7 @@
 }
 
 .mail-thread-list {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
