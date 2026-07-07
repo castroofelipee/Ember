@@ -231,6 +231,20 @@ class MailThreadPreviewResponse(BaseModel):
     received_at: datetime
 
 
+class MailMessagePageResponse(BaseModel):
+    """One page of a folder listing (docs pattern: Gmail-style "page 2", not
+    infinite scroll). `has_more` tells the client whether another page exists
+    without requiring an expensive total count from the mail server."""
+
+    items: list[MailMessageSummaryResponse]
+    has_more: bool
+
+
+class MailThreadPageResponse(BaseModel):
+    items: list[MailThreadPreviewResponse]
+    has_more: bool
+
+
 __all__ = [
     "MailAddressResponse",
     "MailboxResponse",
@@ -242,10 +256,12 @@ __all__ = [
     "MailDomainResponse",
     "MailDomainUpdateRequest",
     "MailMessageDetailResponse",
+    "MailMessagePageResponse",
     "MailMessageSendRequest",
     "MailMessageSendResponse",
     "MailMessageSummaryResponse",
     "MailMessageUpdateRequest",
+    "MailThreadPageResponse",
     "MailThreadPreviewResponse",
     "MailThreadResponse",
     "email_domain",

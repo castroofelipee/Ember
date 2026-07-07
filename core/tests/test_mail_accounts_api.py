@@ -9,7 +9,7 @@ import uuid
 
 from httpx import AsyncClient
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from ember.mail import (
     MailAccountAlreadyExistsError,
@@ -244,6 +244,87 @@ class FakeMailClient(MailClient):
         )
 
 
+class PaginatedFakeMailClient(MailClient):
+    """Mail client double producing `total` distinct, chronologically-ordered
+    messages, so offset/limit slicing on the Ember side can be asserted
+    precisely — unlike `FakeMailClient`, which always returns exactly one
+    message regardless of `limit`."""
+
+    def __init__(self, total: int) -> None:
+        self.total = total
+
+    async def health_check(self) -> bool:
+        return True
+
+    async def create_account(self, address: str, password: str, *, quota_bytes: int | None = None):
+        raise NotImplementedError
+
+    async def set_password(self, account_id: str, password: str) -> None:
+        raise NotImplementedError
+
+    async def delete_account(self, account_id: str) -> None:
+        raise NotImplementedError
+
+    async def send_message(self, **kwargs) -> MailSendResult:
+        raise NotImplementedError
+
+    async def list_mailboxes(self, *, account_id: str):
+        return ()
+
+    async def list_messages(
+        self,
+        *,
+        account_id: str,
+        mailbox_role: str,
+        limit: int = 50,
+        collapse_threads: bool = True,
+    ):
+        count = min(limit, self.total)
+        return tuple(
+            MailMessageSummary(
+                id=f"msg-{i}",
+                thread_id=f"thread-{i}",
+                mailbox_ids=(f"{mailbox_role}-{account_id}",),
+                keywords=(),
+                has_attachment=False,
+                sender=None,
+                subject=f"Message {i}",
+                preview="Preview",
+                received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC) - timedelta(minutes=i),
+                size=128,
+            )
+            for i in range(count)
+        )
+
+    async def get_message(self, *, account_id: str, message_id: str):
+        raise NotImplementedError
+
+    async def update_message(self, *, account_id: str, message_id: str, patch: MailMessageUpdate):
+        raise NotImplementedError
+
+    async def list_thread_messages(self, *, account_id: str, thread_id: str):
+        return (
+            MailMessageDetail(
+                id=f"{thread_id}-1",
+                thread_id=thread_id,
+                mailbox_ids=(f"inbox-{account_id}",),
+                keywords=(),
+                has_attachment=False,
+                sender=None,
+                to=(),
+                cc=(),
+                bcc=(),
+                reply_to=(),
+                subject=f"Message {thread_id}",
+                preview="Preview",
+                received_at=datetime(2026, 7, 5, 12, 0, tzinfo=UTC),
+                size=128,
+                text_body="Body",
+                html_body="",
+            ),
+        )
+
+
 def _use_mail_client(mail_client: MailClient) -> None:
     app.dependency_overrides[_require_mail_client] = lambda: mail_client
 
@@ -431,6 +512,10 @@ def _messages_url(workspace_id: str) -> str:
     return f"{WORKSPACES_URL}/{workspace_id}/mail/messages"
 
 
+def _threads_url(workspace_id: str) -> str:
+    return f"{WORKSPACES_URL}/{workspace_id}/mail/threads"
+
+
 async def test_send_message_requires_auth(client: AsyncClient) -> None:
     token = await _signup(client)
     workspace_id = await _make_workspace(client, token)
@@ -551,12 +636,14 @@ async def test_list_messages_returns_unified_inbox(client: AsyncClient) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 2
-    assert {body[0]["account_email"], body[1]["account_email"]} == {
+    items = body["items"]
+    assert len(items) == 2
+    assert body["has_more"] is False
+    assert {items[0]["account_email"], items[1]["account_email"]} == {
         "ada@example.com",
         "grace@example.com",
     }
-    assert {body[0]["account_id"], body[1]["account_id"]} == {first["id"], second["id"]}
+    assert {items[0]["account_id"], items[1]["account_id"]} == {first["id"], second["id"]}
 
 
 async def test_list_messages_can_scope_to_one_account(client: AsyncClient) -> None:
@@ -574,8 +661,113 @@ async def test_list_messages_can_scope_to_one_account(client: AsyncClient) -> No
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["account_id"] == account["id"]
+    assert len(body["items"]) == 1
+    assert body["items"][0]["account_id"] == account["id"]
+
+
+async def test_list_messages_first_page_has_more(client: AsyncClient) -> None:
+    """5 messages, page size 2: the first page is full and there is more."""
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    await _make_account(client, token, workspace_id, domain_id)
+    _use_mail_client(PaginatedFakeMailClient(total=5))
+
+    response = await client.get(
+        f"{_messages_url(workspace_id)}?limit=2",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["id"] for item in body["items"]] == ["msg-0", "msg-1"]
+    assert body["has_more"] is True
+
+
+async def test_list_messages_second_page_continues_from_offset(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    await _make_account(client, token, workspace_id, domain_id)
+    _use_mail_client(PaginatedFakeMailClient(total=5))
+
+    response = await client.get(
+        f"{_messages_url(workspace_id)}?limit=2&offset=2",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["id"] for item in body["items"]] == ["msg-2", "msg-3"]
+    assert body["has_more"] is True
+
+
+async def test_list_messages_last_page_has_no_more(client: AsyncClient) -> None:
+    """5 messages, page size 2: the third page holds only the leftover
+    message, and there is nothing after it."""
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    await _make_account(client, token, workspace_id, domain_id)
+    _use_mail_client(PaginatedFakeMailClient(total=5))
+
+    response = await client.get(
+        f"{_messages_url(workspace_id)}?limit=2&offset=4",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["id"] for item in body["items"]] == ["msg-4"]
+    assert body["has_more"] is False
+
+
+async def test_list_messages_offset_past_the_end_returns_empty_page(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    await _make_account(client, token, workspace_id, domain_id)
+    _use_mail_client(PaginatedFakeMailClient(total=5))
+
+    response = await client.get(
+        f"{_messages_url(workspace_id)}?limit=2&offset=10",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"] == []
+    assert body["has_more"] is False
+
+
+async def test_list_threads_returns_paginated_previews(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    _use_mail_client(FakeMailClient())
+    await _make_account(client, token, workspace_id, domain_id)
+    _use_mail_client(PaginatedFakeMailClient(total=5))
+
+    first_page = await client.get(
+        f"{_threads_url(workspace_id)}?limit=2", headers=_auth_header(token)
+    )
+    second_page = await client.get(
+        f"{_threads_url(workspace_id)}?limit=2&offset=2", headers=_auth_header(token)
+    )
+    last_page = await client.get(
+        f"{_threads_url(workspace_id)}?limit=2&offset=4", headers=_auth_header(token)
+    )
+
+    assert [item["thread_id"] for item in first_page.json()["items"]] == ["thread-0", "thread-1"]
+    assert first_page.json()["has_more"] is True
+    assert [item["thread_id"] for item in second_page.json()["items"]] == ["thread-2", "thread-3"]
+    assert second_page.json()["has_more"] is True
+    assert [item["thread_id"] for item in last_page.json()["items"]] == ["thread-4"]
+    assert last_page.json()["has_more"] is False
 
 
 async def test_get_message_returns_detail(client: AsyncClient) -> None:

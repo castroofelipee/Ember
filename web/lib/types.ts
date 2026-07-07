@@ -225,6 +225,11 @@ export type MailThread = {
   messages: MailMessageDetail[];
 };
 
+export type MailThreadPage = {
+  items: MailThreadPreview[];
+  has_more: boolean;
+};
+
 export type TimeFormat = "12h" | "24h";
 
 export type Preferences = {

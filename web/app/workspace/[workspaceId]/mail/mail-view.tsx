@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   Archive,
   ChevronLeft,
+  ChevronRight,
   Clock,
   FileText,
   Inbox,
@@ -23,9 +24,19 @@ import {
 } from "lucide-react";
 
 import { useRequireAuth } from "@/lib/auth-client";
-import type { MailFolder, MailMessageDetail, MailThread, MailThreadPreview } from "@/lib/types";
+import type {
+  MailFolder,
+  MailMessageDetail,
+  MailThread,
+  MailThreadPage,
+  MailThreadPreview,
+} from "@/lib/types";
 
 type Status = "loading" | "ready" | "not-found";
+
+/** Messages per page — mirrors Gmail's page-at-a-time inbox instead of
+ * loading (or infinite-scrolling through) an entire folder at once. */
+const PAGE_SIZE = 25;
 
 type FolderItem = {
   key: MailFolder;
@@ -42,8 +53,9 @@ const FOLDERS: FolderItem[] = [
   { key: "trash", label: "Trash", icon: Trash2 },
 ];
 
-function threadsUrl(workspaceId: string, folder: MailFolder): string {
-  return `/api/workspaces/${workspaceId}/mail/threads?folder=${folder}&limit=50`;
+function threadsUrl(workspaceId: string, folder: MailFolder, page: number): string {
+  const offset = (page - 1) * PAGE_SIZE;
+  return `/api/workspaces/${workspaceId}/mail/threads?folder=${folder}&limit=${PAGE_SIZE}&offset=${offset}`;
 }
 
 function threadUrl(workspaceId: string, accountId: string, threadId: string): string {
@@ -186,6 +198,8 @@ export function MailView() {
   const [status, setStatus] = useState<Status>("loading");
   const [folder, setFolder] = useState<MailFolder>("inbox");
   const [threads, setThreads] = useState<MailThreadPreview[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [selected, setSelected] = useState<MailThreadPreview | null>(null);
   const [thread, setThread] = useState<MailThread | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
@@ -194,11 +208,11 @@ export function MailView() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadThreads(nextFolder = folder) {
+  async function loadThreads(nextFolder = folder, nextPage = page) {
     if (authStatus !== "ready") return;
     setRefreshing(true);
     setError(null);
-    const response = await fetch(threadsUrl(workspaceId, nextFolder), {
+    const response = await fetch(threadsUrl(workspaceId, nextFolder, nextPage), {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (response.status === 404) {
@@ -216,11 +230,12 @@ export function MailView() {
       setRefreshing(false);
       return;
     }
-    const items: MailThreadPreview[] = await response.json();
-    setThreads(items);
+    const body: MailThreadPage = await response.json();
+    setThreads(body.items);
+    setHasMore(body.has_more);
     setSelected((current) => {
       if (!current) return null;
-      return items.find((item) => item.thread_id === current.thread_id) ?? null;
+      return body.items.find((item) => item.thread_id === current.thread_id) ?? null;
     });
     setStatus("ready");
     setRefreshing(false);
@@ -255,9 +270,9 @@ export function MailView() {
 
   useEffect(() => {
     if (authStatus !== "ready") return;
-    void loadThreads(folder);
+    void loadThreads(folder, page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authStatus, accessToken, workspaceId, folder]);
+  }, [authStatus, accessToken, workspaceId, folder, page]);
 
   useEffect(() => {
     if (authStatus !== "ready" || !selected) {
@@ -379,6 +394,7 @@ export function MailView() {
                 className={`mail-folder-button${active ? " mail-folder-button--active" : ""}`}
                 onClick={() => {
                   setFolder(item.key);
+                  setPage(1);
                   setSelected(null);
                   setThread(null);
                 }}
@@ -427,7 +443,7 @@ export function MailView() {
             type="button"
             className="mail-icon-button"
             aria-label="Refresh mail"
-            onClick={() => void loadThreads(folder)}
+            onClick={() => void loadThreads(folder, page)}
             disabled={refreshing}
           >
             <RefreshCw size={18} />
@@ -441,7 +457,28 @@ export function MailView() {
                 <p className="mail-list-kicker">{activeFolder.label}</p>
                 <h1>{activeFolder.label}</h1>
               </div>
-              <span>{filteredThreads.length}</span>
+              <div className="mail-pagination">
+                <span>{filteredThreads.length}</span>
+                <button
+                  type="button"
+                  className="mail-icon-button"
+                  aria-label="Previous page"
+                  disabled={page === 1 || refreshing}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <span className="mail-pagination-page">Page {page}</span>
+                <button
+                  type="button"
+                  className="mail-icon-button"
+                  aria-label="Next page"
+                  disabled={!hasMore || refreshing}
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  <ChevronRight size={18} />
+                </button>
+              </div>
             </div>
 
             {error && <p className="form-error form-error--summary">{error}</p>}
