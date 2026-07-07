@@ -295,6 +295,46 @@ async def test_move_event_updates_start_and_end(client: AsyncClient) -> None:
     assert [event["id"] for event in listed.json()] == [event_id]
 
 
+async def test_move_recurring_event_moves_selected_occurrence_only(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "count": 3}),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={
+            "start_at": "2026-07-04T14:30:00+00:00",
+            "end_at": "2026-07-04T15:30:00+00:00",
+            "occurrence_start": "2026-07-02T09:00:00+00:00",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] != event_id
+    assert body["recurrence"] is None
+    assert body["start_at"] == "2026-07-04T14:30:00Z"
+    assert body["end_at"] == "2026-07-04T15:30:00Z"
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-07-01T00:00:00+00:00", "end": "2026-07-05T00:00:00+00:00"},
+    )
+    starts = [datetime.fromisoformat(event["start_at"]) for event in listed.json()]
+    assert starts == [
+        datetime.fromisoformat("2026-07-01T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-03T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-04T14:30:00+00:00"),
+    ]
+
+
 async def test_move_event_rejects_end_before_start(client: AsyncClient) -> None:
     token = await _signup(client)
     _, calendar_id = await _make_calendar(client, token)

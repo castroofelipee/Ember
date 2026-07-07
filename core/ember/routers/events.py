@@ -89,11 +89,6 @@ async def move_event_route(
     event = await get_event_or_none(db, event_id)
     if event is None:
         raise _NOT_FOUND
-    if event.recurrence_freq is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Recurring events cannot be moved from the calendar grid yet.",
-        )
     calendar = await get_calendar(db, event.calendar_id)
     if calendar is None:
         raise _NOT_FOUND

@@ -146,7 +146,9 @@ async def get_event(session: AsyncSession, event_id: uuid.UUID) -> Event:
 
 async def get_event_or_none(session: AsyncSession, event_id: uuid.UUID) -> Event | None:
     return (
-        await session.execute(select(Event).where(Event.id == event_id))
+        await session.execute(
+            select(Event).where(Event.id == event_id).options(selectinload(Event.attendees))
+        )
     ).scalar_one_or_none()
 
 
@@ -156,6 +158,29 @@ async def delete_event(session: AsyncSession, event: Event) -> None:
 
 
 async def move_event(session: AsyncSession, event: Event, data: EventMoveRequest) -> Event:
+    if event.recurrence_freq is not None:
+        occurrence_start = data.occurrence_start or event.start_at
+        exdates = list(event.recurrence_exdates or [])
+        if occurrence_start not in exdates:
+            exdates.append(occurrence_start)
+            exdates.sort()
+        event.recurrence_exdates = exdates
+
+        moved = Event(
+            calendar_id=event.calendar_id,
+            title=event.title,
+            description=event.description,
+            location=event.location,
+            start_at=data.start_at,
+            end_at=data.end_at,
+            all_day=event.all_day,
+            color=event.color,
+            attendees=[EventAttendee(email=attendee.email) for attendee in event.attendees],
+        )
+        session.add(moved)
+        await session.flush()
+        return await get_event(session, moved.id)
+
     event.start_at = data.start_at
     event.end_at = data.end_at
     await session.flush()

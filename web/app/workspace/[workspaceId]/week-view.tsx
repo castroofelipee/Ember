@@ -475,7 +475,7 @@ export function WeekView({
                     (displayEnd.getTime() - displayStart.getTime()) / 3_600_000 * HOUR_PX,
                     18,
                   );
-                  const draggable = !event.allDay && !event.recurrence && Boolean(onEventMove);
+                  const draggable = !event.allDay && Boolean(onEventMove);
                   return (
                     <div
                       className={`week-event${dragging?.eventKey === key ? " week-event--dragging" : ""}${

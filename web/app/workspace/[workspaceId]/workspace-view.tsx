@@ -102,12 +102,14 @@ export function WorkspaceView() {
 
   const moveEvent = useCallback(
     async (event: WeekEvent, start: Date, end: Date) => {
-      if (event.allDay || event.recurrence) return;
+      if (event.allDay) return;
 
       setSelected(null);
       setEvents((prev) =>
         prev.map((item) =>
-          item.id === event.id ? { ...item, start: new Date(start), end: new Date(end) } : item,
+          item.id === event.id && item.start.getTime() === event.start.getTime()
+            ? { ...item, start: new Date(start), end: new Date(end) }
+            : item,
         ),
       );
 
@@ -120,6 +122,7 @@ export function WorkspaceView() {
         body: JSON.stringify({
           start_at: start.toISOString(),
           end_at: end.toISOString(),
+          occurrence_start: event.start.toISOString(),
         }),
       });
 

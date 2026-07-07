@@ -98,6 +98,7 @@ class EventCreateRequest(BaseModel):
 class EventMoveRequest(BaseModel):
     start_at: datetime
     end_at: datetime
+    occurrence_start: datetime | None = None
 
     @model_validator(mode="after")
     def validate_time_range(self) -> "EventMoveRequest":
