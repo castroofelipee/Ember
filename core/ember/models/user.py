@@ -20,8 +20,8 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     credential: Mapped["Credential | None"] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
-    preferences: Mapped["UserPreferences | None"] = relationship(
-        back_populates="user", uselist=False, cascade="all, delete-orphan"
+    preferences: Mapped[list["UserPreferences"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
     )
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

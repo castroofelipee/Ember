@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequireAuth } from "@/lib/auth-client";
-import { DEFAULT_PREFERENCES, type Preferences, type TimeFormat } from "@/lib/types";
+import { DEFAULT_PREFERENCES, type Preferences, type TimeFormat, type Workspace } from "@/lib/types";
 
 import { LOCALE_OPTIONS, TIMEZONE_OPTIONS } from "../onboarding/preferences/locales";
 
@@ -42,23 +42,44 @@ export function SettingsForm() {
   const [status, setStatus] = useState<Status>("loading");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authStatus !== "ready") return;
     let cancelled = false;
 
-    fetch("/api/users/me/preferences", {
+    fetch("/api/workspaces", {
       headers: { Authorization: `Bearer ${accessToken}` },
     }).then(async (response) => {
-      if (cancelled) return;
-      if (response.ok) setPrefs(await response.json());
-      setStatus("ready");
+      if (cancelled || !response.ok) return;
+      const body: Workspace[] = await response.json();
+      setWorkspaces(body);
+      if (body.length > 0) setWorkspaceId(body[0].id);
+      else setStatus("ready");
     });
 
     return () => {
       cancelled = true;
     };
   }, [authStatus, accessToken]);
+
+  useEffect(() => {
+    if (authStatus !== "ready" || !workspaceId) return;
+    let cancelled = false;
+
+    fetch(`/api/workspaces/${workspaceId}/preferences`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }).then(async (response) => {
+      if (cancelled) return;
+      if (response.ok) setPrefs(await response.json());
+      setStatus((prev) => (prev === "loading" ? "ready" : prev));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authStatus, accessToken, workspaceId]);
 
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setPrefs((prev) => ({ ...prev, [key]: value }));
@@ -75,13 +96,13 @@ export function SettingsForm() {
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (authStatus !== "ready") return;
+    if (authStatus !== "ready" || !workspaceId) return;
 
     setStatus("saving");
     setErrorMessage(null);
 
     try {
-      const response = await fetch("/api/users/me/preferences", {
+      const response = await fetch(`/api/workspaces/${workspaceId}/preferences`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
@@ -104,12 +125,42 @@ export function SettingsForm() {
     }
   }
 
-  if (status === "loading") {
+  if (workspaces.length === 0 && status === "loading") {
     return <p className="auth-subtitle">Loading…</p>;
+  }
+
+  if (workspaces.length === 0) {
+    return <p className="auth-subtitle">Create a workspace to configure its settings.</p>;
   }
 
   return (
     <form className="settings-form" onSubmit={handleSubmit}>
+      <section className="settings-section">
+        <h2 className="settings-section-title">Workspace</h2>
+        <p className="settings-section-hint">
+          Each workspace has its own schedule and settings.
+        </p>
+        <div className="form-field">
+          <Label htmlFor="settings-workspace" className="form-label">
+            Workspace
+          </Label>
+          <Select value={workspaceId ?? undefined} onValueChange={setWorkspaceId}>
+            <SelectTrigger id="settings-workspace" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {workspaces.map((workspace) => (
+                <SelectItem key={workspace.id} value={workspace.id}>
+                  {workspace.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </section>
+
+      {status === "loading" && <p className="auth-subtitle">Loading…</p>}
+
       <section className="settings-section">
         <h2 className="settings-section-title">General</h2>
         <div className="settings-grid">

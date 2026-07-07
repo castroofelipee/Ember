@@ -7,8 +7,10 @@ from ember.db import get_db
 from ember.dependencies import get_current_user
 from ember.models import User
 from ember.schemas.calendars import CalendarCreateRequest, CalendarResponse
+from ember.schemas.users import PreferencesResponse, PreferencesUpdateRequest
 from ember.schemas.workspaces import WorkspaceCreateRequest, WorkspaceResponse
 from ember.services.calendars import create_calendar, list_calendars
+from ember.services.users import get_preferences, update_preferences
 from ember.services.workspaces import (
     NotAWorkspaceMemberError,
     assert_workspace_member,
@@ -73,3 +75,26 @@ async def list_calendars_route(
     await _require_membership(db, workspace_id, current_user.id)
     calendars = await list_calendars(db, workspace_id)
     return [CalendarResponse.model_validate(c) for c in calendars]
+
+
+@router.get("/{workspace_id}/preferences")
+async def get_workspace_preferences_route(
+    workspace_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PreferencesResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    preferences = await get_preferences(db, current_user.id, workspace_id)
+    return PreferencesResponse.model_validate(preferences)
+
+
+@router.patch("/{workspace_id}/preferences")
+async def update_workspace_preferences_route(
+    workspace_id: uuid.UUID,
+    data: PreferencesUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PreferencesResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    preferences = await update_preferences(db, current_user.id, workspace_id, data)
+    return PreferencesResponse.model_validate(preferences)

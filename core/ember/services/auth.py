@@ -8,7 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from ember.config import env
 from ember.jwt import create_access_token
-from ember.models import Credential, Invite, RefreshToken, Session, User, UserPreferences
+from ember.models import Credential, Invite, RefreshToken, Session, User
 from ember.schemas.auth import LoginRequest, SignupRequest
 from ember.security import (
     generate_refresh_token,
@@ -127,7 +127,6 @@ async def signup(
 
     user = User(email=data.email, display_name=data.display_name)
     user.credential = Credential(password_hash=hash_password(data.password))
-    user.preferences = UserPreferences()
 
     session.add(user)
     try:
