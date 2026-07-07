@@ -28,10 +28,12 @@ from ember.schemas.mail import (
     MailDomainResponse,
     MailDomainUpdateRequest,
     MailMessageDetailResponse,
+    MailMessagePageResponse,
     MailMessageSendRequest,
     MailMessageSendResponse,
     MailMessageSummaryResponse,
     MailMessageUpdateRequest,
+    MailThreadPageResponse,
     MailThreadPreviewResponse,
     MailThreadResponse,
 )
@@ -383,20 +385,22 @@ async def list_mail_messages_route(
     workspace_id: uuid.UUID,
     folder: MailFolder = "inbox",
     limit: int = 50,
+    offset: int = 0,
     account_id: uuid.UUID | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     mail_client: MailClient = Depends(_require_mail_client),
-) -> list[MailMessageSummaryResponse]:
+) -> MailMessagePageResponse:
     await _require_membership(db, workspace_id, current_user.id)
     account = None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
     try:
-        messages = await list_workspace_messages(
+        messages, has_more = await list_workspace_messages(
             db,
             workspace_id,
             mail_client,
             folder=folder,
             limit=max(1, min(limit, 100)),
+            offset=max(0, offset),
             account=account,
         )
     except MailAuthenticationError as exc:
@@ -417,7 +421,9 @@ async def list_mail_messages_route(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Mail server rejected the message list request.",
         ) from exc
-    return [_message_summary_response(item) for item in messages]
+    return MailMessagePageResponse(
+        items=[_message_summary_response(item) for item in messages], has_more=has_more
+    )
 
 
 @router.get("/{workspace_id}/mail/threads")
@@ -425,20 +431,22 @@ async def list_mail_threads_route(
     workspace_id: uuid.UUID,
     folder: MailFolder = "inbox",
     limit: int = 50,
+    offset: int = 0,
     account_id: uuid.UUID | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     mail_client: MailClient = Depends(_require_mail_client),
-) -> list[MailThreadPreviewResponse]:
+) -> MailThreadPageResponse:
     await _require_membership(db, workspace_id, current_user.id)
     account = None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
     try:
-        previews = await list_workspace_thread_previews(
+        previews, has_more = await list_workspace_thread_previews(
             db,
             workspace_id,
             mail_client,
             folder=folder,
             limit=max(1, min(limit, 100)),
+            offset=max(0, offset),
             account=account,
         )
     except MailAuthenticationError as exc:
@@ -459,7 +467,9 @@ async def list_mail_threads_route(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Mail server rejected the thread list request.",
         ) from exc
-    return [_thread_preview_response(item) for item in previews]
+    return MailThreadPageResponse(
+        items=[_thread_preview_response(item) for item in previews], has_more=has_more
+    )
 
 
 @router.get("/{workspace_id}/mail/accounts/{account_id}/messages/{message_id}")

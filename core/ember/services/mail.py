@@ -326,15 +326,27 @@ async def list_workspace_messages(
     *,
     folder: MailFolder,
     limit: int,
+    offset: int = 0,
     account: MailAccount | None = None,
-) -> list[WorkspaceMailMessageSummary]:
+) -> tuple[list[WorkspaceMailMessageSummary], bool]:
+    """Returns one page of the folder (Gmail-style "page 2", not infinite
+    scroll) plus whether a further page exists.
+
+    The workspace's active accounts are each queried for `offset + limit + 1`
+    messages (position 0) so their results can be merged into one
+    globally-sorted list before the requested page is sliced out — a single
+    account's own chronological order isn't enough once more than one mailbox
+    feeds the same unified inbox. The `+1` is a cheap way to learn whether a
+    next page exists without asking the mail server for a total count.
+    """
     accounts = [account] if account is not None else await _active_workspace_accounts(session, workspace_id)
+    fetch_limit = offset + limit + 1
     messages: list[WorkspaceMailMessageSummary] = []
     for item in accounts:
         for message in await mail_client.list_messages(
             account_id=item.provider_account_id,
             mailbox_role=folder,
-            limit=limit,
+            limit=fetch_limit,
         ):
             messages.append(
                 WorkspaceMailMessageSummary(
@@ -344,7 +356,8 @@ async def list_workspace_messages(
                 )
             )
     messages.sort(key=lambda item: item.message.received_at, reverse=True)
-    return messages[:limit]
+    has_more = len(messages) > offset + limit
+    return messages[offset : offset + limit], has_more
 
 
 async def get_workspace_message(
@@ -403,14 +416,16 @@ async def list_workspace_thread_previews(
     *,
     folder: MailFolder,
     limit: int,
+    offset: int = 0,
     account: MailAccount | None = None,
-) -> list[WorkspaceMailThreadPreview]:
-    summaries = await list_workspace_messages(
+) -> tuple[list[WorkspaceMailThreadPreview], bool]:
+    summaries, has_more = await list_workspace_messages(
         session,
         workspace_id,
         mail_client,
         folder=folder,
         limit=limit,
+        offset=offset,
         account=account,
     )
     previews: list[WorkspaceMailThreadPreview] = []
@@ -437,4 +452,4 @@ async def list_workspace_thread_previews(
             )
         )
     previews.sort(key=lambda item: max(message.received_at for message in item.messages), reverse=True)
-    return previews[:limit]
+    return previews, has_more
