@@ -187,6 +187,12 @@ class MailClient(ABC):
         """Update message flags or mailbox placement."""
 
     @abstractmethod
+    async def mark_mailbox_read(self, *, account_id: str, mailbox_role: str) -> int:
+        """Mark every unread message in a mailbox role as read.
+
+        Returns the number of messages whose `$seen` flag was set."""
+
+    @abstractmethod
     async def list_thread_messages(
         self, *, account_id: str, thread_id: str
     ) -> Sequence[MailMessageDetail]:
@@ -872,6 +878,50 @@ class StalwartMailClient(MailClient):
         if not emails:
             raise MailClientError(f"Mail server returned no updated message for id {message_id!r}")
         return self._message_detail(emails[0])
+
+    async def mark_mailbox_read(self, *, account_id: str, mailbox_role: str) -> int:
+        mailbox_ids = await self._resolve_mailbox_ids_by_role(account_id, (mailbox_role,))
+        mailbox_id = mailbox_ids[mailbox_role]
+        query_body = {
+            "methodCalls": [
+                [
+                    "Email/query",
+                    {
+                        "accountId": account_id,
+                        "filter": {"inMailbox": mailbox_id, "notKeyword": "$seen"},
+                        # A mailbox can hold more unread mail than one page; the
+                        # cap keeps a single JMAP call bounded while covering any
+                        # realistic inbox. Stalwart returns at most this many ids.
+                        "limit": 1000,
+                    },
+                    "c1",
+                ]
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        query_args = self._unwrap_response(await self._call_jmap(query_body), "Email/query")
+        message_ids = [str(message_id) for message_id in (query_args.get("ids") or [])]
+        if not message_ids:
+            return 0
+
+        set_body = {
+            "methodCalls": [
+                [
+                    "Email/set",
+                    {
+                        "accountId": account_id,
+                        "update": {
+                            message_id: {"keywords/$seen": True} for message_id in message_ids
+                        },
+                    },
+                    "c1",
+                ]
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        set_args = self._unwrap_response(await self._call_jmap(set_body), "Email/set")
+        updated = set_args.get("updated") or {}
+        return len(updated)
 
     async def list_thread_messages(
         self, *, account_id: str, thread_id: str

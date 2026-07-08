@@ -171,6 +171,9 @@ class FakeMailClient(MailClient):
             html_body="",
         )
 
+    async def mark_mailbox_read(self, *, account_id: str, mailbox_role: str) -> int:
+        return 1
+
     async def list_thread_messages(self, *, account_id: str, thread_id: str):
         return (
             MailMessageDetail(

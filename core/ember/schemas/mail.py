@@ -245,6 +245,13 @@ class MailThreadPageResponse(BaseModel):
     has_more: bool
 
 
+class MailMarkReadResponse(BaseModel):
+    """Result of a bulk "mark all as read" over a folder. `marked` is the
+    number of messages whose unread flag was cleared."""
+
+    marked: int
+
+
 __all__ = [
     "MailAddressResponse",
     "MailboxResponse",
@@ -255,6 +262,7 @@ __all__ = [
     "MailDomainCreateRequest",
     "MailDomainResponse",
     "MailDomainUpdateRequest",
+    "MailMarkReadResponse",
     "MailMessageDetailResponse",
     "MailMessagePageResponse",
     "MailMessageSendRequest",

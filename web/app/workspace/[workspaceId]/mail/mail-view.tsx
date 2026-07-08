@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Archive,
+  CheckCheck,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -26,6 +27,7 @@ import {
 import { useRequireAuth } from "@/lib/auth-client";
 import type {
   MailFolder,
+  MailMarkReadResult,
   MailMessageDetail,
   MailThread,
   MailThreadPage,
@@ -56,6 +58,10 @@ const FOLDERS: FolderItem[] = [
 function threadsUrl(workspaceId: string, folder: MailFolder, page: number): string {
   const offset = (page - 1) * PAGE_SIZE;
   return `/api/workspaces/${workspaceId}/mail/threads?folder=${folder}&limit=${PAGE_SIZE}&offset=${offset}`;
+}
+
+function markReadUrl(workspaceId: string, folder: MailFolder): string {
+  return `/api/workspaces/${workspaceId}/mail/read?folder=${folder}`;
 }
 
 function threadUrl(workspaceId: string, accountId: string, threadId: string): string {
@@ -205,6 +211,7 @@ export function MailView() {
   const [loadingThread, setLoadingThread] = useState(false);
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [markingRead, setMarkingRead] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -266,6 +273,33 @@ export function MailView() {
       },
       body: JSON.stringify({ flagged }),
     });
+  }
+
+  async function markAllRead() {
+    if (authStatus !== "ready" || markingRead) return;
+    setMarkingRead(true);
+    setError(null);
+    const response = await fetch(markReadUrl(workspaceId, folder), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!response.ok) {
+      const detail = await response
+        .json()
+        .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+        .catch(() => null);
+      setError(detail ?? "Could not mark messages as read.");
+      setMarkingRead(false);
+      return;
+    }
+    const body: MailMarkReadResult = await response.json();
+    if (body.marked > 0) {
+      setThreads((items) => items.map((item) => ({ ...item, unread_count: 0 })));
+    }
+    setMarkingRead(false);
+    // Reconcile with the server so counts stay correct even if mail arrived
+    // between the mark and the refresh.
+    void loadThreads(folder, page);
   }
 
   useEffect(() => {
@@ -336,6 +370,7 @@ export function MailView() {
   }, [threads, query]);
 
   const activeFolder = FOLDERS.find((item) => item.key === folder) ?? FOLDERS[0];
+  const hasUnread = threads.some((item) => item.unread_count > 0);
   const selectedIsVisible = Boolean(
     selected && filteredThreads.some((item) => item.thread_id === selected.thread_id),
   );
@@ -458,6 +493,16 @@ export function MailView() {
                 <h1>{activeFolder.label}</h1>
               </div>
               <div className="mail-pagination">
+                <button
+                  type="button"
+                  className="mail-icon-button"
+                  aria-label="Mark all as read"
+                  title="Mark all as read"
+                  disabled={!hasUnread || markingRead || refreshing}
+                  onClick={() => void markAllRead()}
+                >
+                  <CheckCheck size={18} />
+                </button>
                 <span>{filteredThreads.length}</span>
                 <button
                   type="button"

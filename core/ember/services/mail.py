@@ -392,6 +392,27 @@ async def update_workspace_message(
     )
 
 
+async def mark_workspace_folder_read(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    mail_client: MailClient,
+    *,
+    folder: MailFolder,
+    account: MailAccount | None = None,
+) -> int:
+    """Clear the unread flag on every message in `folder`, across the
+    workspace's active accounts (or a single account when given). Returns the
+    total number of messages marked read."""
+    accounts = [account] if account is not None else await _active_workspace_accounts(session, workspace_id)
+    marked = 0
+    for item in accounts:
+        marked += await mail_client.mark_mailbox_read(
+            account_id=item.provider_account_id,
+            mailbox_role=folder,
+        )
+    return marked
+
+
 async def get_workspace_thread(
     account: MailAccount, thread_id: str, mail_client: MailClient
 ) -> list[WorkspaceMailMessageDetail]:
