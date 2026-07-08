@@ -94,6 +94,7 @@ class FakeMailClient(MailClient):
         self.create_calls: list[tuple[str, str]] = []
         self.delete_calls: list[str] = []
         self.send_calls: list[dict] = []
+        self.mark_read_calls: list[tuple[str, str]] = []
         self._next_id = 1
 
     async def health_check(self) -> bool:
@@ -203,6 +204,11 @@ class FakeMailClient(MailClient):
             html_body="",
         )
 
+    async def mark_mailbox_read(self, *, account_id: str, mailbox_role: str) -> int:
+        self.mark_read_calls.append((account_id, mailbox_role))
+        # One unread message per account, matching list_mailboxes above.
+        return 1
+
     async def list_thread_messages(self, *, account_id: str, thread_id: str):
         return (
             MailMessageDetail(
@@ -300,6 +306,9 @@ class PaginatedFakeMailClient(MailClient):
         raise NotImplementedError
 
     async def update_message(self, *, account_id: str, message_id: str, patch: MailMessageUpdate):
+        raise NotImplementedError
+
+    async def mark_mailbox_read(self, *, account_id: str, mailbox_role: str) -> int:
         raise NotImplementedError
 
     async def list_thread_messages(self, *, account_id: str, thread_id: str):
@@ -514,6 +523,10 @@ def _messages_url(workspace_id: str) -> str:
 
 def _threads_url(workspace_id: str) -> str:
     return f"{WORKSPACES_URL}/{workspace_id}/mail/threads"
+
+
+def _mark_read_url(workspace_id: str) -> str:
+    return f"{WORKSPACES_URL}/{workspace_id}/mail/read"
 
 
 async def test_send_message_requires_auth(client: AsyncClient) -> None:
@@ -768,6 +781,67 @@ async def test_list_threads_returns_paginated_previews(client: AsyncClient) -> N
     assert second_page.json()["has_more"] is True
     assert [item["thread_id"] for item in last_page.json()["items"]] == ["thread-4"]
     assert last_page.json()["has_more"] is False
+
+
+async def test_mark_folder_read_requires_auth(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+
+    response = await client.post(_mark_read_url(workspace_id))
+
+    assert response.status_code == 401
+
+
+async def test_mark_folder_read_marks_every_account(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    mail_client = FakeMailClient()
+    _use_mail_client(mail_client)
+    await _make_account(client, token, workspace_id, domain_id, email="ada@example.com")
+    await _make_account(client, token, workspace_id, domain_id, email="grace@example.com")
+
+    response = await client.post(
+        f"{_mark_read_url(workspace_id)}?folder=inbox", headers=_auth_header(token)
+    )
+
+    assert response.status_code == 200
+    # One unread per account (FakeMailClient), across both provisioned accounts.
+    assert response.json() == {"marked": 2}
+    assert {role for _, role in mail_client.mark_read_calls} == {"inbox"}
+    assert len(mail_client.mark_read_calls) == 2
+
+
+async def test_mark_folder_read_can_scope_to_one_account(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    domain_id = await _make_domain(client, token, workspace_id, "example.com")
+    mail_client = FakeMailClient()
+    _use_mail_client(mail_client)
+    account = await _make_account(client, token, workspace_id, domain_id, email="ada@example.com")
+    await _make_account(client, token, workspace_id, domain_id, email="grace@example.com")
+
+    response = await client.post(
+        f"{_mark_read_url(workspace_id)}?account_id={account['id']}",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"marked": 1}
+    assert mail_client.mark_read_calls == [(account["provider_account_id"], "inbox")]
+
+
+async def test_mark_folder_read_in_others_workspace_returns_404(client: AsyncClient) -> None:
+    owner_token = await _signup(client)
+    workspace_id = await _make_workspace(client, owner_token)
+    _use_mail_client(FakeMailClient())
+    other_token = await _signup_second_user(client, owner_token)
+
+    response = await client.post(
+        _mark_read_url(workspace_id), headers=_auth_header(other_token)
+    )
+
+    assert response.status_code == 404
 
 
 async def test_get_message_returns_detail(client: AsyncClient) -> None:

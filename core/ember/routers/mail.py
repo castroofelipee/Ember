@@ -27,6 +27,7 @@ from ember.schemas.mail import (
     MailDomainCreateRequest,
     MailDomainResponse,
     MailDomainUpdateRequest,
+    MailMarkReadResponse,
     MailMessageDetailResponse,
     MailMessagePageResponse,
     MailMessageSendRequest,
@@ -56,6 +57,7 @@ from ember.services.mail import (
     list_workspace_mailboxes,
     list_workspace_messages,
     list_workspace_thread_previews,
+    mark_workspace_folder_read,
     register_mail_account,
     send_mail_message,
     update_workspace_message,
@@ -470,6 +472,42 @@ async def list_mail_threads_route(
     return MailThreadPageResponse(
         items=[_thread_preview_response(item) for item in previews], has_more=has_more
     )
+
+
+@router.post("/{workspace_id}/mail/read")
+async def mark_mail_folder_read_route(
+    workspace_id: uuid.UUID,
+    folder: MailFolder = "inbox",
+    account_id: uuid.UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> MailMarkReadResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    account = None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    try:
+        marked = await mark_workspace_folder_read(
+            db, workspace_id, mail_client, folder=folder, account=account
+        )
+    except MailAuthenticationError as exc:
+        logger.warning("Mail server rejected admin credentials marking folder read: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the configured admin credentials.",
+        ) from exc
+    except (MailConnectionError, MailTimeoutError) as exc:
+        logger.warning("Mail server error marking folder read: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach the mail server. Please try again.",
+        ) from exc
+    except MailClientError as exc:
+        logger.warning("Mail server rejected mark-folder-read: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Mail server rejected the mark-as-read request.",
+        ) from exc
+    return MailMarkReadResponse(marked=marked)
 
 
 @router.get("/{workspace_id}/mail/accounts/{account_id}/messages/{message_id}")

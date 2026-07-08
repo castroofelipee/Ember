@@ -230,6 +230,10 @@ export type MailThreadPage = {
   has_more: boolean;
 };
 
+export type MailMarkReadResult = {
+  marked: number;
+};
+
 export type TimeFormat = "12h" | "24h";
 
 export type Preferences = {
