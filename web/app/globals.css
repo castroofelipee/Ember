@@ -1974,10 +1974,33 @@
 }
 
 .knowledge-card-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   color: #a1a1a1;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0;
+}
+
+.knowledge-card-recurring {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(33, 16, 59, 0.85);
+  color: #c4b3e0;
+  font-size: 0.66rem;
+}
+
+.knowledge-column-actions .knowledge-column-scheduled {
+  min-width: 0;
+  width: auto;
+  gap: 0.2rem;
+  padding: 0 0.5rem;
+  background: rgba(33, 16, 59, 0.85);
+  color: #c4b3e0;
 }
 
 .knowledge-card-topline {

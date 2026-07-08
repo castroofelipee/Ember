@@ -10,6 +10,7 @@ import {
   ChevronRight,
   CheckCircle2,
   CheckSquare,
+  Clock,
   Columns3,
   FilePlus,
   FileText,
@@ -20,6 +21,7 @@ import {
   Mail,
   Pencil,
   Plus,
+  RefreshCw,
   Save,
   Search,
   Tag,
@@ -165,6 +167,40 @@ function nextDayIsoDate(value: string): string {
   const date = new Date(`${value}T00:00:00`);
   date.setDate(date.getDate() + 1);
   return date.toISOString();
+}
+
+/** Local (browser-timezone) calendar-day key, e.g. "2026-07-08". The board
+ * reasons about "today" in the user's own timezone (UTC-3 for us) — a daily
+ * card resets at their local midnight, not UTC's. */
+function localDayKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isDailyRecurring(entity: Entity): boolean {
+  return stringProp(entity, "recurrence") === "daily";
+}
+
+/** Whether a card counts as done *right now*. A daily-recurring card only
+ * stays completed for the local day it was completed on; once the user's
+ * clock rolls into the next day it resets so it can be completed again. */
+function isEffectivelyCompleted(entity: Entity): boolean {
+  if (!boolProp(entity, "completed")) return false;
+  if (!isDailyRecurring(entity)) return true;
+  const completedAt = stringProp(entity, "completed_at");
+  if (!completedAt) return false;
+  const completedDate = new Date(completedAt);
+  if (Number.isNaN(completedDate.getTime())) return false;
+  return localDayKey(completedDate) === localDayKey(new Date());
+}
+
+/** A card scheduled for a future day stays hidden from the board until its
+ * due date arrives — "appear when it should appear". */
+function isScheduledForFuture(entity: Entity): boolean {
+  const dueDate = stringProp(entity, "due_date");
+  return Boolean(dueDate) && isFutureDate(dueDate);
 }
 
 export function BoardsView() {
@@ -858,9 +894,12 @@ function BoardPanel({
       ) : (
         <section className="knowledge-board">
           {[...activeBoard.columns].sort((a, b) => a.position - b.position).map((column) => {
-            const cards = activeBoard.cards
+            const columnCards = activeBoard.cards
               .filter((card) => card.column_id === column.id)
               .sort((a, b) => a.position - b.position);
+            // Future-scheduled cards are held back until their due date.
+            const cards = columnCards.filter((card) => !isScheduledForFuture(card.entity));
+            const scheduledCount = columnCards.length - cards.length;
             const dropClass =
               columnDropHint?.columnId === column.id
                 ? ` knowledge-column--drop-${columnDropHint.edge}`
@@ -884,6 +923,7 @@ function BoardPanel({
                 <ColumnHeader
                   column={column}
                   count={cards.length}
+                  scheduledCount={scheduledCount}
                   onUpdate={onUpdateColumn}
                   onDelete={onDeleteColumn}
                   onDragStart={onColumnDragStart}
@@ -925,6 +965,7 @@ function BoardPanel({
 function ColumnHeader({
   column,
   count,
+  scheduledCount = 0,
   onUpdate,
   onDelete,
   onDragStart,
@@ -932,6 +973,7 @@ function ColumnHeader({
 }: {
   column: BoardColumn;
   count: number;
+  scheduledCount?: number;
   onUpdate: (column: BoardColumn, title: string) => void;
   onDelete: (column: BoardColumn) => void;
   onDragStart: (columnId: string) => void;
@@ -987,6 +1029,15 @@ function ColumnHeader({
       )}
       <div className="knowledge-column-actions">
         <span>{count}</span>
+        {scheduledCount > 0 && (
+          <span
+            className="knowledge-column-scheduled"
+            title={`${scheduledCount} scheduled for a future day`}
+          >
+            <Clock size={12} />
+            {scheduledCount}
+          </span>
+        )}
         <button type="button" aria-label="Edit column" onClick={() => setEditing(true)}>
           <Pencil size={14} />
         </button>
@@ -1436,7 +1487,8 @@ function BoardCardView({
   const assignees = stringListProp(card.entity, "assignees");
   const done = checklistProp(card.entity).filter((item) => item.done).length;
   const total = checklistProp(card.entity).length;
-  const completed = boolProp(card.entity, "completed");
+  const completed = isEffectivelyCompleted(card.entity);
+  const recurringDaily = isDailyRecurring(card.entity);
 
   return (
     <article
@@ -1454,7 +1506,15 @@ function BoardCardView({
       }}
     >
       <span className="knowledge-card-topline">
-        <span className="knowledge-card-type">{completed ? "Completed" : typeLabel(card.entity.type)}</span>
+        <span className="knowledge-card-type">
+          {completed ? "Completed" : typeLabel(card.entity.type)}
+          {recurringDaily && (
+            <span className="knowledge-card-recurring" title="Repeats every day">
+              <RefreshCw size={11} />
+              Daily
+            </span>
+          )}
+        </span>
         <span className="knowledge-card-actions">
           {!completed && (
             <button
@@ -1878,7 +1938,7 @@ function EntityDrawer({
       <div className="knowledge-drawer-body">
         {drawerError && <p className="form-error">{drawerError}</p>}
         <div className="knowledge-drawer-actions">
-          {!boolProp(entity, "completed") && (
+          {!isEffectivelyCompleted(entity) && (
             <Button type="button" onClick={() => onClosed(entity)}>
               <CheckCircle2 />
               Complete
