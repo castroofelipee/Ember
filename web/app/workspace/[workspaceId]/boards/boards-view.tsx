@@ -183,6 +183,10 @@ function isDailyRecurring(entity: Entity): boolean {
   return stringProp(entity, "recurrence") === "daily";
 }
 
+function isClosed(entity: Entity): boolean {
+  return boolProp(entity, "closed");
+}
+
 /** Whether a card counts as done *right now*. A daily-recurring card only
  * stays completed for the local day it was completed on; once the user's
  * clock rolls into the next day it resets so it can be completed again. */
@@ -226,6 +230,7 @@ export function BoardsView() {
   const [columnDropHint, setColumnDropHint] = useState<ColumnDropHint>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [completionNotice, setCompletionNotice] = useState<string | null>(null);
 
   const activeBoard = useMemo(
     () => boards.find((board) => board.id === activeBoardId) ?? boards[0] ?? null,
@@ -272,6 +277,12 @@ export function BoardsView() {
   useEffect(() => {
     void loadKnowledge();
   }, [loadKnowledge]);
+
+  useEffect(() => {
+    if (!completionNotice) return;
+    const timeout = window.setTimeout(() => setCompletionNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [completionNotice]);
 
   async function createBoard() {
     if (!boardTitle.trim()) return;
@@ -609,6 +620,7 @@ export function BoardsView() {
   }
 
   async function closeCard(entity: Entity) {
+    const recurringDaily = isDailyRecurring(entity);
     try {
       const updated = await jsonRequest<Entity>(
         `/api/workspaces/${workspaceId}/entities/${entity.id}`,
@@ -620,12 +632,20 @@ export function BoardsView() {
               ...entity.properties,
               completed: true,
               completed_at: new Date().toISOString(),
+              closed: recurringDaily ? false : true,
+              closed_at: recurringDaily ? "" : new Date().toISOString(),
             },
           }),
         },
         "Could not close card.",
       );
       updateEntityInState(updated);
+      if (recurringDaily) {
+        setSelectedEntity(updated);
+      } else {
+        setSelectedEntity((current) => (current?.id === entity.id ? null : current));
+        setCompletionNotice("Task completed and closed. It has been removed from the board.");
+      }
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not close card.");
@@ -756,6 +776,7 @@ export function BoardsView() {
 
       <main className="knowledge-main">
         {error && <p className="form-error">{error}</p>}
+        {completionNotice && <p className="knowledge-alert">{completionNotice}</p>}
         <BoardPanel
           activeBoard={activeBoard}
           columnTitle={columnTitle}
@@ -898,7 +919,9 @@ function BoardPanel({
               .filter((card) => card.column_id === column.id)
               .sort((a, b) => a.position - b.position);
             // Future-scheduled cards are held back until their due date.
-            const cards = columnCards.filter((card) => !isScheduledForFuture(card.entity));
+            const cards = columnCards.filter(
+              (card) => !isScheduledForFuture(card.entity) && !isClosed(card.entity),
+            );
             const scheduledCount = columnCards.length - cards.length;
             const dropClass =
               columnDropHint?.columnId === column.id
