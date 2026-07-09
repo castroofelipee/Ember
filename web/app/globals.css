@@ -1757,6 +1757,16 @@
   overflow: hidden;
 }
 
+.knowledge-alert {
+  margin: 0;
+  border: 1px solid rgba(92, 184, 92, 0.35);
+  background: rgba(35, 61, 35, 0.88);
+  color: #d7f5dc;
+  border-radius: 0.75rem;
+  padding: 0.8rem 1rem;
+  font-size: 0.92rem;
+}
+
 .knowledge-header {
   display: flex;
   align-items: flex-start;
