@@ -57,3 +57,59 @@ async def test_resend_sends_expected_payload_and_authorization() -> None:
     }
     assert result.email_id == "resend-123"
     assert result.submission_id == "resend-123"
+
+
+@pytest.mark.parametrize("status", [401, 403])
+async def test_resend_auth_errors_are_normalized(status: int) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status)
+
+    with pytest.raises(MailAuthenticationError):
+        await _sender_with(handler).send_message(
+            account_id="a",
+            from_address="a@example.com",
+            to=("b@example.com",),
+            subject="Hi",
+            text="Body",
+        )
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_resend_provider_errors_are_normalized(status: int) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, text="rejected")
+
+    with pytest.raises(MailClientError):
+        await _sender_with(handler).send_message(
+            account_id="a",
+            from_address="a@example.com",
+            to=("b@example.com",),
+            subject="Hi",
+            text="Body",
+        )
+
+
+async def test_resend_timeout_and_connection_errors_are_normalized() -> None:
+    def timeout(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    with pytest.raises(MailTimeoutError):
+        await _sender_with(timeout).send_message(
+            account_id="a",
+            from_address="a@example.com",
+            to=("b@example.com",),
+            subject="Hi",
+            text="Body",
+        )
+
+    def connection(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline", request=request)
+
+    with pytest.raises(MailConnectionError):
+        await _sender_with(connection).send_message(
+            account_id="a",
+            from_address="a@example.com",
+            to=("b@example.com",),
+            subject="Hi",
+            text="Body",
+        )
