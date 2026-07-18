@@ -11,10 +11,12 @@ from ember.mail import (
     MailAuthenticationError,
     MailClient,
     MailClientError,
+    MailSender,
     MailConnectionError,
     MailDomainNotProvisionedError,
     MailTimeoutError,
     get_mail_client,
+    get_mail_sender,
 )
 from ember.models import MailAccount, MailDomain, User
 from ember.schemas.mail import (
@@ -88,7 +90,18 @@ def _require_mail_client() -> MailClient:
     return client
 
 
-async def _require_membership(db: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
+def _require_mail_sender(
+    mail_client: MailClient = Depends(_require_mail_client),
+) -> MailSender:
+    sender = get_mail_sender(mail_client)
+    if sender is None:
+        raise _MAIL_UNAVAILABLE
+    return sender
+
+
+async def _require_membership(
+    db: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
     try:
         await assert_workspace_member(db, workspace_id, user_id)
     except NotAWorkspaceMemberError as exc:
@@ -140,9 +153,18 @@ def _message_detail_response(item) -> MailMessageDetailResponse:
     summary = _message_summary_response(item)
     return MailMessageDetailResponse(
         **summary.model_dump(),
-        to=[MailAddressResponse(email=address.email, name=address.name) for address in item.message.to],
-        cc=[MailAddressResponse(email=address.email, name=address.name) for address in item.message.cc],
-        bcc=[MailAddressResponse(email=address.email, name=address.name) for address in item.message.bcc],
+        to=[
+            MailAddressResponse(email=address.email, name=address.name)
+            for address in item.message.to
+        ],
+        cc=[
+            MailAddressResponse(email=address.email, name=address.name)
+            for address in item.message.cc
+        ],
+        bcc=[
+            MailAddressResponse(email=address.email, name=address.name)
+            for address in item.message.bcc
+        ],
         reply_to=[
             MailAddressResponse(email=address.email, name=address.name)
             for address in item.message.reply_to
@@ -394,7 +416,9 @@ async def list_mail_messages_route(
     mail_client: MailClient = Depends(_require_mail_client),
 ) -> MailMessagePageResponse:
     await _require_membership(db, workspace_id, current_user.id)
-    account = None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    account = (
+        None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    )
     try:
         messages, has_more = await list_workspace_messages(
             db,
@@ -440,7 +464,9 @@ async def list_mail_threads_route(
     mail_client: MailClient = Depends(_require_mail_client),
 ) -> MailThreadPageResponse:
     await _require_membership(db, workspace_id, current_user.id)
-    account = None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    account = (
+        None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    )
     try:
         previews, has_more = await list_workspace_thread_previews(
             db,
@@ -484,7 +510,9 @@ async def mark_mail_folder_read_route(
     mail_client: MailClient = Depends(_require_mail_client),
 ) -> MailMarkReadResponse:
     await _require_membership(db, workspace_id, current_user.id)
-    account = None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    account = (
+        None if account_id is None else await _get_account_or_404(db, workspace_id, account_id)
+    )
     try:
         marked = await mark_workspace_folder_read(
             db, workspace_id, mail_client, folder=folder, account=account
@@ -524,7 +552,9 @@ async def get_mail_message_route(
     try:
         message = await get_workspace_message(account, message_id, mail_client)
     except MailAuthenticationError as exc:
-        logger.warning("Mail server rejected admin credentials loading message %s: %s", message_id, exc)
+        logger.warning(
+            "Mail server rejected admin credentials loading message %s: %s", message_id, exc
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Mail server rejected the configured admin credentials.",
@@ -559,7 +589,9 @@ async def update_mail_message_route(
     try:
         message = await update_workspace_message(account, message_id, data, mail_client)
     except MailAuthenticationError as exc:
-        logger.warning("Mail server rejected admin credentials updating message %s: %s", message_id, exc)
+        logger.warning(
+            "Mail server rejected admin credentials updating message %s: %s", message_id, exc
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Mail server rejected the configured admin credentials.",
@@ -593,7 +625,9 @@ async def get_mail_thread_route(
     try:
         thread = await get_workspace_thread(account, thread_id, mail_client)
     except MailAuthenticationError as exc:
-        logger.warning("Mail server rejected admin credentials loading thread %s: %s", thread_id, exc)
+        logger.warning(
+            "Mail server rejected admin credentials loading thread %s: %s", thread_id, exc
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Mail server rejected the configured admin credentials.",
@@ -674,12 +708,12 @@ async def send_mail_message_route(
     data: MailMessageSendRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    mail_client: MailClient = Depends(_require_mail_client),
+    mail_sender: MailSender = Depends(_require_mail_sender),
 ) -> MailMessageSendResponse:
     await _require_membership(db, workspace_id, current_user.id)
     account = await _get_account_or_404(db, workspace_id, account_id)
     try:
-        result = await send_mail_message(account, data, mail_client)
+        result = await send_mail_message(account, data, mail_sender)
     except MailAccountNotActiveError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
