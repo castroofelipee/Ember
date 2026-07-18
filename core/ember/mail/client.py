@@ -10,7 +10,6 @@ is swappable without touching domain code.
 backend so far. Password rotation remains an unimplemented stub.
 """
 
-from argon2 import _password_hasher
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from collections.abc import Sequence
@@ -160,6 +159,20 @@ class MailClient(ABC):
         bcc: Sequence[str] = (),
     ) -> MailSendResult:
         """Create and submit a text email through the provider."""
+
+    async def save_sent_message(
+        self,
+        *,
+        account_id: str,
+        from_address: str,
+        to: Sequence[str],
+        subject: str,
+        text: str,
+        cc: Sequence[str] = (),
+        bcc: Sequence[str] = (),
+    ) -> str:
+        """Store an already-delivered message in Sent without submitting it."""
+        raise NotImplementedError
 
     @abstractmethod
     async def list_mailboxes(self, *, account_id: str) -> Sequence[MailboxInfo]:
@@ -482,7 +495,9 @@ class StalwartMailClient(MailClient):
 
     @classmethod
     def _mail_addresses(cls, values: Sequence[dict] | None) -> tuple[MailAddress, ...]:
-        return tuple(address for address in (cls._mail_address(value) for value in (values or ())) if address)
+        return tuple(
+            address for address in (cls._mail_address(value) for value in (values or ())) if address
+        )
 
     @staticmethod
     def _parse_received_at(value: str) -> datetime:
@@ -513,9 +528,15 @@ class StalwartMailClient(MailClient):
         return MailMessageSummary(
             id=str(email["id"]),
             thread_id=str(email["threadId"]),
-            mailbox_ids=tuple(str(mailbox_id) for mailbox_id in (email.get("mailboxIds") or {}).keys()),
+            mailbox_ids=tuple(
+                str(mailbox_id) for mailbox_id in (email.get("mailboxIds") or {}).keys()
+            ),
             keywords=tuple(
-                sorted(str(keyword) for keyword, enabled in (email.get("keywords") or {}).items() if enabled)
+                sorted(
+                    str(keyword)
+                    for keyword, enabled in (email.get("keywords") or {}).items()
+                    if enabled
+                )
             ),
             has_attachment=bool(email.get("hasAttachment", False)),
             sender=sender,
@@ -530,9 +551,15 @@ class StalwartMailClient(MailClient):
         return MailMessageDetail(
             id=str(email["id"]),
             thread_id=str(email["threadId"]),
-            mailbox_ids=tuple(str(mailbox_id) for mailbox_id in (email.get("mailboxIds") or {}).keys()),
+            mailbox_ids=tuple(
+                str(mailbox_id) for mailbox_id in (email.get("mailboxIds") or {}).keys()
+            ),
             keywords=tuple(
-                sorted(str(keyword) for keyword, enabled in (email.get("keywords") or {}).items() if enabled)
+                sorted(
+                    str(keyword)
+                    for keyword, enabled in (email.get("keywords") or {}).items()
+                    if enabled
+                )
             ),
             has_attachment=bool(email.get("hasAttachment", False)),
             sender=self._mail_address((email.get("from") or [None])[0]),
@@ -658,9 +685,7 @@ class StalwartMailClient(MailClient):
         if created_email is None:
             raise MailClientError("Mail server did not return created Email id")
 
-        submission_args = self._unwrap_tagged_response(
-            response_body, "c2", "EmailSubmission/set"
-        )
+        submission_args = self._unwrap_tagged_response(response_body, "c2", "EmailSubmission/set")
         not_submitted = submission_args.get("notCreated") or {}
         if self._SUBMISSION_CREATE_KEY in not_submitted:
             error = not_submitted[self._SUBMISSION_CREATE_KEY]
@@ -668,9 +693,7 @@ class StalwartMailClient(MailClient):
                 f"Mail server refused to submit outgoing email: "
                 f"{error.get('type')} ({error.get('description', 'no description')})"
             )
-        created_submission = (submission_args.get("created") or {}).get(
-            self._SUBMISSION_CREATE_KEY
-        )
+        created_submission = (submission_args.get("created") or {}).get(self._SUBMISSION_CREATE_KEY)
         if created_submission is None:
             raise MailClientError("Mail server did not return created EmailSubmission id")
 
@@ -689,6 +712,56 @@ class StalwartMailClient(MailClient):
             email_id=str(created_email["id"]),
             submission_id=str(created_submission["id"]),
         )
+
+    async def save_sent_message(
+        self,
+        *,
+        account_id: str,
+        from_address: str,
+        to: Sequence[str],
+        subject: str,
+        text: str,
+        cc: Sequence[str] = (),
+        bcc: Sequence[str] = (),
+    ) -> str:
+        sent_id = (await self._resolve_mailbox_ids_by_role(account_id, ("sent",)))["sent"]
+
+        def addresses(values: Sequence[str]) -> list[dict[str, str]]:
+            return [{"email": value} for value in values]
+
+        email: dict = {
+            "mailboxIds": {sent_id: True},
+            "from": [{"email": from_address}],
+            "to": addresses(to),
+            "subject": subject,
+            "bodyValues": {"body": {"value": text, "charset": "utf-8"}},
+            "textBody": [{"partId": "body", "type": "text/plain"}],
+        }
+        if cc:
+            email["cc"] = addresses(cc)
+        if bcc:
+            email["bcc"] = addresses(bcc)
+        body = {
+            "methodCalls": [
+                [
+                    "Email/set",
+                    {"accountId": account_id, "create": {self._EMAIL_CREATE_KEY: email}},
+                    "c1",
+                ]
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"],
+        }
+        arguments = self._unwrap_response(await self._call_jmap(body), "Email/set")
+        error = (arguments.get("notCreated") or {}).get(self._EMAIL_CREATE_KEY)
+        if error:
+            raise MailClientError(
+                "Mail server refused to save sent email: "
+                f"{error.get('type')} ({error.get('description', 'no description')})"
+            )
+        created = (arguments.get("created") or {}).get(self._EMAIL_CREATE_KEY)
+        if created is None or not created.get("id"):
+            raise MailClientError("Mail server did not return saved Email id")
+        return str(created["id"])
 
     async def list_mailboxes(self, *, account_id: str) -> Sequence[MailboxInfo]:
         body = {
@@ -818,7 +891,11 @@ class StalwartMailClient(MailClient):
             system_roles = {"inbox", "archive", "trash", "junk", "sent", "drafts"}
             mailbox_ids = set(current.mailbox_ids)
             for role, mailbox_id in role_to_id.items():
-                if role in system_roles and mailbox_id in mailbox_ids and mailbox_id != target_mailbox_id:
+                if (
+                    role in system_roles
+                    and mailbox_id in mailbox_ids
+                    and mailbox_id != target_mailbox_id
+                ):
                     mailbox_patch[f"mailboxIds/{mailbox_id}"] = None
             mailbox_patch[f"mailboxIds/{target_mailbox_id}"] = True
 
@@ -841,24 +918,31 @@ class StalwartMailClient(MailClient):
                 ],
                 [
                     "Email/get",
-                    {"accountId": account_id, "ids": [message_id], "properties": [
-                        "threadId",
-                        "mailboxIds",
-                        "keywords",
-                        "hasAttachment",
-                        "from",
-                        "to",
-                        "cc",
-                        "bcc",
-                        "replyTo",
-                        "subject",
-                        "receivedAt",
-                        "size",
-                        "preview",
-                        "textBody",
-                        "htmlBody",
-                        "bodyValues",
-                    ], "bodyProperties": ["partId", "type"], "fetchTextBodyValues": True, "fetchHTMLBodyValues": True},
+                    {
+                        "accountId": account_id,
+                        "ids": [message_id],
+                        "properties": [
+                            "threadId",
+                            "mailboxIds",
+                            "keywords",
+                            "hasAttachment",
+                            "from",
+                            "to",
+                            "cc",
+                            "bcc",
+                            "replyTo",
+                            "subject",
+                            "receivedAt",
+                            "size",
+                            "preview",
+                            "textBody",
+                            "htmlBody",
+                            "bodyValues",
+                        ],
+                        "bodyProperties": ["partId", "type"],
+                        "fetchTextBodyValues": True,
+                        "fetchHTMLBodyValues": True,
+                    },
                     "c2",
                 ],
             ],
@@ -933,7 +1017,11 @@ class StalwartMailClient(MailClient):
                     "Email/get",
                     {
                         "accountId": account_id,
-                        "#ids": {"resultOf": "c1", "name": "Thread/get", "path": "/list/0/emailIds"},
+                        "#ids": {
+                            "resultOf": "c1",
+                            "name": "Thread/get",
+                            "path": "/list/0/emailIds",
+                        },
                         "properties": [
                             "threadId",
                             "mailboxIds",
