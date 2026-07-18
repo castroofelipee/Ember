@@ -113,3 +113,22 @@ async def test_resend_timeout_and_connection_errors_are_normalized() -> None:
             subject="Hi",
             text="Body",
         )
+
+
+class FailingSentClient:
+    async def save_sent_message(self, **kwargs) -> str:
+        raise MailClientError("Stalwart unavailable")
+
+
+async def test_sent_copy_failure_does_not_fail_resend_delivery() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "already-delivered"})
+
+    result = await _sender_with(handler, mailbox_client=FailingSentClient()).send_message(
+        account_id="a",
+        from_address="a@example.com",
+        to=("b@example.com",),
+        subject="Hi",
+        text="Body",
+    )
+
