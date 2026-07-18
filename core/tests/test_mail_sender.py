@@ -132,3 +132,24 @@ async def test_sent_copy_failure_does_not_fail_resend_delivery() -> None:
         text="Body",
     )
 
+    assert result.submission_id == "already-delivered"
+
+
+def test_sender_factory_defaults_to_stalwart(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(env, "MAIL_ENABLED", True)
+    monkeypatch.setitem(env, "MAIL_OUTBOUND_PROVIDER", "stalwart")
+    client = StalwartMailClient("https://mail.example.com", "token")
+    assert isinstance(get_mail_sender(client), StalwartMailSender)
+
+
+def test_sender_factory_builds_resend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(env, "MAIL_ENABLED", True)
+    monkeypatch.setitem(env, "MAIL_OUTBOUND_PROVIDER", "resend")
+    monkeypatch.setitem(env, "RESEND_API_KEY", "re_secret")
+    client = StalwartMailClient("https://mail.example.com", "token")
+    assert isinstance(get_mail_sender(client), ResendMailSender)
+
+
+def test_sender_factory_returns_none_when_mail_disabled() -> None:
+    assert env["MAIL_ENABLED"] is False
+    assert get_mail_sender() is None
