@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ember.mail import (
     MailClient,
+    MailSender,
     MailClientError,
     MailMessageDetail,
     MailMessageSummary,
@@ -104,15 +105,11 @@ async def create_mail_domain(
     return domain
 
 
-async def get_mail_domain(
-    session: AsyncSession, domain_id: uuid.UUID
-) -> MailDomain | None:
+async def get_mail_domain(session: AsyncSession, domain_id: uuid.UUID) -> MailDomain | None:
     return await session.get(MailDomain, domain_id)
 
 
-async def list_mail_domains(
-    session: AsyncSession, workspace_id: uuid.UUID
-) -> list[MailDomain]:
+async def list_mail_domains(session: AsyncSession, workspace_id: uuid.UUID) -> list[MailDomain]:
     return list(
         (
             await session.execute(
@@ -212,15 +209,11 @@ async def register_mail_account(
     return account
 
 
-async def get_mail_account(
-    session: AsyncSession, account_id: uuid.UUID
-) -> MailAccount | None:
+async def get_mail_account(session: AsyncSession, account_id: uuid.UUID) -> MailAccount | None:
     return await session.get(MailAccount, account_id)
 
 
-async def list_mail_accounts(
-    session: AsyncSession, workspace_id: uuid.UUID
-) -> list[MailAccount]:
+async def list_mail_accounts(session: AsyncSession, workspace_id: uuid.UUID) -> list[MailAccount]:
     return list(
         (
             await session.execute(
@@ -271,11 +264,11 @@ async def delete_mail_account(
 
 
 async def send_mail_message(
-    account: MailAccount, data: MailMessageSendRequest, mail_client: MailClient
+    account: MailAccount, data: MailMessageSendRequest, mail_sender: MailSender
 ):
     if account.status.value != "active":
         raise MailAccountNotActiveError()
-    return await mail_client.send_message(
+    return await mail_sender.send_message(
         account_id=account.provider_account_id,
         from_address=account.email,
         to=data.to,
@@ -339,7 +332,11 @@ async def list_workspace_messages(
     feeds the same unified inbox. The `+1` is a cheap way to learn whether a
     next page exists without asking the mail server for a total count.
     """
-    accounts = [account] if account is not None else await _active_workspace_accounts(session, workspace_id)
+    accounts = (
+        [account]
+        if account is not None
+        else await _active_workspace_accounts(session, workspace_id)
+    )
     fetch_limit = offset + limit + 1
     messages: list[WorkspaceMailMessageSummary] = []
     for item in accounts:
@@ -403,7 +400,11 @@ async def mark_workspace_folder_read(
     """Clear the unread flag on every message in `folder`, across the
     workspace's active accounts (or a single account when given). Returns the
     total number of messages marked read."""
-    accounts = [account] if account is not None else await _active_workspace_accounts(session, workspace_id)
+    accounts = (
+        [account]
+        if account is not None
+        else await _active_workspace_accounts(session, workspace_id)
+    )
     marked = 0
     for item in accounts:
         marked += await mail_client.mark_mailbox_read(
@@ -472,5 +473,7 @@ async def list_workspace_thread_previews(
                 messages=messages,
             )
         )
-    previews.sort(key=lambda item: max(message.received_at for message in item.messages), reverse=True)
+    previews.sort(
+        key=lambda item: max(message.received_at for message in item.messages), reverse=True
+    )
     return previews, has_more
