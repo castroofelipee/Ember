@@ -26,6 +26,11 @@ env = venvalid(
         "MAIL_ADMIN_TOKEN": str_(default=""),
         # Timeout (seconds) for HTTP calls to the mail server's management API.
         "MAIL_HTTP_TIMEOUT_SECONDS": int_(default=10),
+        # Outbound delivery can be delegated independently from mailbox
+        # storage/reading. Stalwart remains the compatibility default.
+        "MAIL_OUTBOUND_PROVIDER": str_(default="stalwart"),
+        "RESEND_API_KEY": str_(default=""),
+        "RESEND_TIMEOUT_SECONDS": int_(default=10),
     }
 )
 
