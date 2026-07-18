@@ -23,6 +23,7 @@ from ember.mail.client import (
     MailTimeoutError,
     StalwartMailClient,
 )
+from ember.mail.sender import MailSender, ResendMailSender, StalwartMailSender
 
 __all__ = [
     "MailAccount",
@@ -41,6 +42,10 @@ __all__ = [
     "MailTimeoutError",
     "StalwartMailClient",
     "get_mail_client",
+    "MailSender",
+    "ResendMailSender",
+    "StalwartMailSender",
+    "get_mail_sender",
 ]
 
 
@@ -59,3 +64,24 @@ def get_mail_client() -> MailClient | None:
         admin_token=env["MAIL_ADMIN_TOKEN"],
         timeout=float(env["MAIL_HTTP_TIMEOUT_SECONDS"]),
     )
+
+
+def get_mail_sender(mail_client: MailClient | None = None) -> MailSender | None:
+    """Build the independently configured outbound provider."""
+    # An explicitly injected client is also the test/custom-deployment seam;
+    # the normal disabled path calls this without one and remains None.
+    if not mail_enabled() and mail_client is None:
+        return None
+    client = mail_client or get_mail_client()
+    provider = env["MAIL_OUTBOUND_PROVIDER"].strip().lower()
+    if provider == "stalwart":
+        if client is None:  # Defensive: MAIL_ENABLED guarantees one today.
+            return None
+        return StalwartMailSender(client)
+    if provider == "resend":
+        return ResendMailSender(
+            env["RESEND_API_KEY"],
+            timeout=float(env["RESEND_TIMEOUT_SECONDS"]),
+            mailbox_client=client,
+        )
+    raise ValueError(f"Unsupported MAIL_OUTBOUND_PROVIDER: {provider!r}")
