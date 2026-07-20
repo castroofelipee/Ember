@@ -15,6 +15,7 @@ import {
 import { EventDetail } from "./event-detail";
 import { EventDeleteDialog } from "./event-delete-dialog";
 import { EventDialog } from "./event-dialog";
+import { AppHeader } from "./app-header";
 import { Sidebar } from "./sidebar";
 import { CalendarView, WeekView, type WeekEvent } from "./week-view";
 
@@ -40,6 +41,7 @@ export function WorkspaceView() {
   const [selected, setSelected] = useState<SelectedEvent | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({ open: false });
   const [deleting, setDeleting] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   // Remember the span currently on screen so we can refetch after creating.
   const rangeRef = useRef<{ start: Date; end: Date } | null>(null);
 
@@ -259,31 +261,38 @@ export function WorkspaceView() {
 
   return (
     <div className="workspace-layout">
-      <Sidebar
+      <AppHeader
         workspaceId={workspaceId}
-        calendars={calendars}
-        selectedDate={focusDate}
-        onSelectDay={(date) => {
-          setFocusDate(date);
-          setView("day");
-        }}
-        onCreateEvent={() => setDialog({ open: true })}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen((value) => !value)}
       />
-      <main className="calendar-main">
-        <WeekView
+      <div className="workspace-content">
+        <Sidebar
           calendars={calendars}
-          preferences={preferences}
-          view={view}
-          date={focusDate}
-          events={events}
-          onDateChange={setFocusDate}
-          onViewChange={setView}
-          onVisibleRangeChange={handleVisibleRangeChange}
-          onSlotClick={(start) => setDialog({ open: true, initialStart: start })}
-          onEventClick={(event, anchor) => setSelected({ event, anchor })}
-          onEventMove={moveEvent}
+          selectedDate={focusDate}
+          open={sidebarOpen}
+          onSelectDay={(date) => {
+            setFocusDate(date);
+            setView("day");
+          }}
+          onCreateEvent={() => setDialog({ open: true })}
         />
-      </main>
+        <main className="calendar-main">
+          <WeekView
+            calendars={calendars}
+            preferences={preferences}
+            view={view}
+            date={focusDate}
+            events={events}
+            onDateChange={setFocusDate}
+            onViewChange={setView}
+            onVisibleRangeChange={handleVisibleRangeChange}
+            onSlotClick={(start) => setDialog({ open: true, initialStart: start })}
+            onEventClick={(event, anchor) => setSelected({ event, anchor })}
+            onEventMove={moveEvent}
+          />
+        </main>
+      </div>
 
       {selected && (
         <EventDetail

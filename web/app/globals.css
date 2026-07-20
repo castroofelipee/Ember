@@ -2790,9 +2790,132 @@
 
 .workspace-layout {
   display: flex;
+  flex-direction: column;
   height: 100dvh;
   overflow: hidden;
   background: #121212;
+}
+
+.workspace-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.app-header {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 4rem;
+  flex-shrink: 0;
+  padding: 0 1rem 0 0.75rem;
+  border-bottom: 1px solid #2a2a2a;
+  background: #161616;
+}
+
+.app-header-leading,
+.app-header-actions {
+  display: flex;
+  align-items: center;
+}
+
+.app-header-leading {
+  gap: 0.6rem;
+}
+
+.app-header-actions {
+  gap: 0.35rem;
+}
+
+.app-header-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #c7c7c7;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.app-header-icon-button:hover,
+.app-header-icon-button--active {
+  background: #292929;
+  color: #ffffff;
+}
+
+.app-header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #e8eaed;
+  font-size: 1.3rem;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.app-header-logo {
+  width: 2.25rem;
+  height: 2.25rem;
+  object-fit: contain;
+}
+
+.app-launcher {
+  position: relative;
+}
+
+.app-launcher-menu {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 6.5rem);
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid #343434;
+  border-radius: 1.25rem;
+  background: #202124;
+  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.45);
+}
+
+.app-launcher-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.8rem 0.5rem;
+  border: none;
+  border-radius: 0.9rem;
+  background: transparent;
+  color: #e8eaed;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.app-launcher-item:hover,
+.app-launcher-item--active {
+  background: #303134;
+}
+
+.app-launcher-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.85rem;
+  background: #21103b;
+  color: #d8b4fe;
 }
 
 .workspace-main {
@@ -2811,7 +2934,7 @@
   gap: 1.25rem;
   width: 16rem;
   flex-shrink: 0;
-  padding: 1rem 1rem 0.5rem;
+  padding: 1rem;
   background: #161616;
   border-right: 1px solid #2a2a2a;
   overflow-y: auto;

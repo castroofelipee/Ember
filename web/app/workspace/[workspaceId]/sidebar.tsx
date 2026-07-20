@@ -1,18 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
-import { useRouter } from "next/navigation";
 import {
   Check,
   ChevronDown,
-  Columns3,
-  LayoutGrid,
-  Mail,
-  Menu,
   Plus,
   Search,
-  Settings,
 } from "lucide-react";
 
 import type { Calendar } from "@/lib/types";
@@ -20,49 +13,22 @@ import type { Calendar } from "@/lib/types";
 import { MiniCalendar } from "./mini-calendar";
 
 type SidebarProps = {
-  workspaceId: string;
   calendars: Calendar[];
   selectedDate: Date;
   onSelectDay: (date: Date) => void;
   onCreateEvent: () => void;
+  open: boolean;
 };
 
 export function Sidebar({
-  workspaceId,
   calendars,
   selectedDate,
   onSelectDay,
   onCreateEvent,
+  open,
 }: SidebarProps) {
-  const router = useRouter();
-  const [open, setOpen] = useState(true);
-
   return (
     <aside className={`sidebar${open ? "" : " sidebar--collapsed"}`}>
-      <div className="sidebar-top">
-        {open && (
-          <span className="sidebar-brand">
-            <Image
-              src="/logo.png"
-              alt="Ember"
-              width={80}
-              height={80}
-              className="sidebar-logo"
-              priority
-            />
-          </span>
-        )}
-        <button
-          type="button"
-          className="sidebar-icon-button"
-          aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <Menu size={20} />
-        </button>
-      </div>
-
       <button type="button" className="sidebar-create-button" onClick={onCreateEvent}>
         <Plus size={18} />
         {open && <span>Create event</span>}
@@ -85,43 +51,6 @@ export function Sidebar({
         </>
       )}
 
-      <div className="sidebar-rail-actions">
-        <button
-          type="button"
-          className="sidebar-settings-button"
-          onClick={() => router.push("/calendars")}
-        >
-          <LayoutGrid size={18} />
-          {open && <span>Workspaces</span>}
-        </button>
-
-        <button
-          type="button"
-          className="sidebar-settings-button"
-          onClick={() => router.push(`/workspace/${workspaceId}/mail`)}
-        >
-          <Mail size={18} />
-          {open && <span>Mail</span>}
-        </button>
-
-        <button
-          type="button"
-          className="sidebar-settings-button"
-          onClick={() => router.push(`/workspace/${workspaceId}/boards`)}
-        >
-          <Columns3 size={18} />
-          {open && <span>Boards</span>}
-        </button>
-
-        <button
-          type="button"
-          className="sidebar-settings-button"
-          onClick={() => router.push("/settings")}
-        >
-          <Settings size={18} />
-          {open && <span>Settings</span>}
-        </button>
-      </div>
     </aside>
   );
 }
