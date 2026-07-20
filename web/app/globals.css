@@ -3431,6 +3431,57 @@ button.mini-calendar-day--selected:hover {
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
 }
 
+.week-event--resizing {
+  cursor: ns-resize;
+  filter: brightness(1.18);
+  opacity: 0.9;
+  z-index: 5;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.32);
+}
+
+.week-event-resize-handle {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 12px;
+  cursor: ns-resize;
+  z-index: 2;
+}
+
+.week-event-resize-handle::after {
+  position: absolute;
+  left: 50%;
+  width: 22px;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  content: "";
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 0.12s ease;
+}
+
+.week-event:hover .week-event-resize-handle::after,
+.week-event--resizing .week-event-resize-handle::after {
+  opacity: 1;
+}
+
+.week-event-resize-handle--start {
+  top: 0;
+}
+
+.week-event-resize-handle--start::after {
+  top: 2px;
+}
+
+.week-event-resize-handle--end {
+  bottom: 0;
+}
+
+.week-event-resize-handle--end::after {
+  bottom: 2px;
+}
+
 .week-event--allday {
   position: static;
   border-left: none;

@@ -87,6 +87,19 @@ type DragState = {
   dragged: boolean;
 };
 
+type ResizeState = {
+  eventKey: string;
+  event: WeekEvent;
+  pointerId: number;
+  edge: "start" | "end";
+  initialClientY: number;
+  columnTop: number;
+  dayStart: Date;
+  previewStart: Date;
+  previewEnd: Date;
+  resized: boolean;
+};
+
 /** Translucent fill from a hex color, for the frosted event blocks. */
 function hexToRgba(hex: string, alpha: number): string {
   const value = hex.replace("#", "");
@@ -182,6 +195,7 @@ export function WeekView({
   const suppressClickRef = useRef<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [dragging, setDragging] = useState<DragState | null>(null);
+  const [resizing, setResizing] = useState<ResizeState | null>(null);
 
   const { week_starts_on, work_day_start, work_day_end, time_format } = preferences;
   const isDay = view === "day";
@@ -293,6 +307,59 @@ export function WeekView({
       window.removeEventListener("pointercancel", finishDrag);
     };
   }, [dragging, onEventMove, updateDragPreview]);
+
+  useEffect(() => {
+    if (!resizing) return;
+
+    function handlePointerMove(event: PointerEvent) {
+      event.preventDefault();
+      setResizing((state) => {
+        if (!state || state.pointerId !== event.pointerId) return state;
+        const pointerMinutes = snapMinutes(((event.clientY - state.columnTop) / HOUR_PX) * 60);
+        const startMinutes = (state.event.start.getTime() - state.dayStart.getTime()) / MINUTE_MS;
+        const endMinutes = (state.event.end.getTime() - state.dayStart.getTime()) / MINUTE_MS;
+        const resized =
+          state.resized ||
+          Math.abs(event.clientY - state.initialClientY) > DRAG_CLICK_THRESHOLD_PX;
+
+        if (state.edge === "start") {
+          const nextStart = clamp(pointerMinutes, 0, endMinutes - DRAG_SNAP_MINUTES);
+          return {
+            ...state,
+            previewStart: addMinutes(state.dayStart, nextStart),
+            resized,
+          };
+        }
+
+        const nextEnd = clamp(pointerMinutes, startMinutes + DRAG_SNAP_MINUTES, 24 * 60);
+        return {
+          ...state,
+          previewEnd: addMinutes(state.dayStart, nextEnd),
+          resized,
+        };
+      });
+    }
+
+    function finishResize(event: PointerEvent) {
+      setResizing((state) => {
+        if (!state || state.pointerId !== event.pointerId) return state;
+        if (state.resized) {
+          suppressClickRef.current = state.eventKey;
+          void onEventMove?.(state.event, state.previewStart, state.previewEnd);
+        }
+        return null;
+      });
+    }
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", finishResize);
+    window.addEventListener("pointercancel", finishResize);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishResize);
+      window.removeEventListener("pointercancel", finishResize);
+    };
+  }, [resizing, onEventMove]);
 
   return (
     <div className="week-view">
@@ -466,6 +533,8 @@ export function WeekView({
                   const preview =
                     dragging?.eventKey === key
                       ? { start: dragging.previewStart, end: dragging.previewEnd }
+                      : resizing?.eventKey === key
+                        ? { start: resizing.previewStart, end: resizing.previewEnd }
                       : null;
                   const displayStart = preview?.start ?? event.start;
                   const displayEnd = preview?.end ?? event.end;
@@ -479,6 +548,8 @@ export function WeekView({
                   return (
                     <div
                       className={`week-event${dragging?.eventKey === key ? " week-event--dragging" : ""}${
+                        resizing?.eventKey === key ? " week-event--resizing" : ""
+                      }${
                         draggable ? " week-event--draggable" : ""
                       }`}
                       key={key}
@@ -490,8 +561,33 @@ export function WeekView({
                       }}
                       onPointerDown={(e) => {
                         if (!draggable || e.button !== 0) return;
+                        e.preventDefault();
                         e.stopPropagation();
                         const rect = e.currentTarget.getBoundingClientRect();
+                        const resizeZone = Math.min(12, rect.height / 3);
+                        const edge =
+                          e.clientY - rect.top <= resizeZone
+                            ? "start"
+                            : rect.bottom - e.clientY <= resizeZone
+                              ? "end"
+                              : null;
+                        if (edge) {
+                          const column = e.currentTarget.closest<HTMLElement>("[data-week-day-index]");
+                          if (!column) return;
+                          setResizing({
+                            eventKey: key,
+                            event,
+                            pointerId: e.pointerId,
+                            edge,
+                            initialClientY: e.clientY,
+                            columnTop: column.getBoundingClientRect().top,
+                            dayStart: startOfDay(event.start),
+                            previewStart: event.start,
+                            previewEnd: event.end,
+                            resized: false,
+                          });
+                          return;
+                        }
                         const durationMinutes = Math.max(
                           DRAG_SNAP_MINUTES,
                           Math.round((event.end.getTime() - event.start.getTime()) / MINUTE_MS),
@@ -528,6 +624,16 @@ export function WeekView({
                         <span className="week-event-time-small">
                           {formatClock(displayStart, time_format)} – {formatClock(displayEnd, time_format)}
                         </span>
+                      )}
+                      {draggable && (
+                        <>
+                          <span
+                            className="week-event-resize-handle week-event-resize-handle--start"
+                          />
+                          <span
+                            className="week-event-resize-handle week-event-resize-handle--end"
+                          />
+                        </>
                       )}
                     </div>
                   );
