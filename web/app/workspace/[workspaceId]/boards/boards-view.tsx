@@ -233,6 +233,8 @@ export function BoardsView() {
   const [completionNotice, setCompletionNotice] = useState<string | null>(null);
   const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
   const [deletingBoard, setDeletingBoard] = useState(false);
+  const [labelOption, setLabelOption] = useState("");
+  const [assigneeOption, setAssigneeOption] = useState("");
 
   const activeBoard = useMemo(
     () => boards.find((board) => board.id === activeBoardId) ?? boards[0] ?? null,
@@ -504,6 +506,29 @@ export function BoardsView() {
       setError(error instanceof Error ? error.message : "Could not delete board.");
     } finally {
       setDeletingBoard(false);
+    }
+  }
+
+  async function addBoardOption(kind: "label_options" | "assignee_options", value: string) {
+    if (!activeBoard || !value.trim()) return;
+    const options = activeBoard[kind];
+    if (options.some((option) => option.toLowerCase() === value.trim().toLowerCase())) return;
+    try {
+      const board = await jsonRequest<Board>(
+        `/api/workspaces/${workspaceId}/boards/${activeBoard.id}`,
+        {
+          method: "PATCH",
+          headers: apiHeaders(accessToken),
+          body: JSON.stringify({ [kind]: [...options, value.trim()] }),
+        },
+        "Could not update board options.",
+      );
+      setBoards((prev) => prev.map((item) => (item.id === board.id ? board : item)));
+      if (kind === "label_options") setLabelOption("");
+      else setAssigneeOption("");
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not update board options.");
     }
   }
 
@@ -833,6 +858,12 @@ export function BoardsView() {
           onCloseCard={closeCard}
           onDeleteCard={deleteCard}
           onDeleteBoard={() => activeBoard && setBoardToDelete(activeBoard)}
+          labelOption={labelOption}
+          assigneeOption={assigneeOption}
+          onLabelOptionChange={setLabelOption}
+          onAssigneeOptionChange={setAssigneeOption}
+          onAddLabelOption={() => addBoardOption("label_options", labelOption)}
+          onAddAssigneeOption={() => addBoardOption("assignee_options", assigneeOption)}
         />
       </main>
 
@@ -846,11 +877,13 @@ export function BoardsView() {
           onClosed={closeCard}
           onDeleted={deleteCard}
           onRelatedCreated={updateEntityInState}
+          board={activeBoard}
         />
       )}
       {creatingCardColumn && activeBoard && (
         <CardCreateDrawer
           column={creatingCardColumn}
+          board={activeBoard}
           onClose={() => setCreatingCardColumn(null)}
           onCreate={createCard}
         />
@@ -925,6 +958,12 @@ function BoardPanel({
   onCloseCard,
   onDeleteCard,
   onDeleteBoard,
+  labelOption,
+  assigneeOption,
+  onLabelOptionChange,
+  onAssigneeOptionChange,
+  onAddLabelOption,
+  onAddAssigneeOption,
 }: {
   activeBoard: Board | null;
   columnTitle: string;
@@ -946,6 +985,12 @@ function BoardPanel({
   onCloseCard: (entity: Entity) => void;
   onDeleteCard: (entity: Entity) => void;
   onDeleteBoard: () => void;
+  labelOption: string;
+  assigneeOption: string;
+  onLabelOptionChange: (value: string) => void;
+  onAssigneeOptionChange: (value: string) => void;
+  onAddLabelOption: () => void;
+  onAddAssigneeOption: () => void;
 }) {
   if (!activeBoard) {
     return (
@@ -984,6 +1029,45 @@ function BoardPanel({
           <Plus />
           Column
         </Button>
+      </div>
+
+      <div className="knowledge-board-options">
+        <div className="knowledge-board-option-group">
+          <span className="event-dialog-label"><Tag size={14} /> Labels</span>
+          <div className="knowledge-inline-create">
+            <input
+              className="event-dialog-input"
+              value={labelOption}
+              onChange={(event) => onLabelOptionChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") onAddLabelOption();
+              }}
+              placeholder="New label"
+            />
+            <Button type="button" onClick={onAddLabelOption}><Plus /></Button>
+          </div>
+          <div className="knowledge-option-list">
+            {activeBoard.label_options.map((option) => <span key={option}>{option}</span>)}
+          </div>
+        </div>
+        <div className="knowledge-board-option-group">
+          <span className="event-dialog-label"><UserRound size={14} /> Responsible</span>
+          <div className="knowledge-inline-create">
+            <input
+              className="event-dialog-input"
+              value={assigneeOption}
+              onChange={(event) => onAssigneeOptionChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") onAddAssigneeOption();
+              }}
+              placeholder="New responsible"
+            />
+            <Button type="button" onClick={onAddAssigneeOption}><Plus /></Button>
+          </div>
+          <div className="knowledge-option-list">
+            {activeBoard.assignee_options.map((option) => <span key={option}>{option}</span>)}
+          </div>
+        </div>
       </div>
 
       {activeBoard.columns.length === 0 ? (
@@ -1673,12 +1757,47 @@ function BoardCardView({
   );
 }
 
+function OptionPicker({
+  options,
+  selected,
+  onChange,
+  empty,
+}: {
+  options: string[];
+  selected: string[];
+  onChange: (value: string[]) => void;
+  empty: string;
+}) {
+  const available = Array.from(new Set([...options, ...selected]));
+  if (available.length === 0) return <span className="knowledge-option-empty">{empty}</span>;
+  return (
+    <div className="knowledge-option-picker">
+      {available.map((option) => {
+        const active = selected.includes(option);
+        return (
+          <button
+            type="button"
+            className={`knowledge-option-choice${active ? " knowledge-option-choice--active" : ""}`}
+            aria-pressed={active}
+            key={option}
+            onClick={() => onChange(active ? selected.filter((item) => item !== option) : [...selected, option])}
+          >
+            {option}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function CardCreateDrawer({
   column,
+  board,
   onClose,
   onCreate,
 }: {
   column: BoardColumn;
+  board: Board;
   onClose: () => void;
   onCreate: (data: {
     column: BoardColumn;
@@ -1694,8 +1813,8 @@ function CardCreateDrawer({
 }) {
   const [title, setTitle] = useState("");
   const [type, setType] = useState<EntityType>("task");
-  const [labelsInput, setLabelsInput] = useState("");
-  const [assigneesInput, setAssigneesInput] = useState("");
+  const [labels, setLabels] = useState<string[]>([]);
+  const [assignees, setAssignees] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [recurrence, setRecurrence] = useState<CardRecurrence>("none");
   const [content, setContent] = useState("");
@@ -1714,8 +1833,8 @@ function CardCreateDrawer({
       column,
       title,
       type,
-      labels: labelsInput.split(",").map((item) => item.trim()).filter(Boolean),
-      assignees: assigneesInput.split(",").map((item) => item.trim()).filter(Boolean),
+      labels,
+      assignees,
       dueDate,
       content,
       checklist,
@@ -1760,30 +1879,20 @@ function CardCreateDrawer({
           </select>
         </label>
         <div className="knowledge-editor-grid">
-          <label className="event-dialog-field">
+          <div className="event-dialog-field">
             <span className="event-dialog-label">
               <Tag size={14} />
               Labels
             </span>
-            <input
-              className="event-dialog-input"
-              value={labelsInput}
-              onChange={(event) => setLabelsInput(event.target.value)}
-              placeholder="frontend, urgent"
-            />
-          </label>
-          <label className="event-dialog-field">
+            <OptionPicker options={board.label_options} selected={labels} onChange={setLabels} empty="Create labels in the board first" />
+          </div>
+          <div className="event-dialog-field">
             <span className="event-dialog-label">
               <UserRound size={14} />
               Responsible
             </span>
-            <input
-              className="event-dialog-input"
-              value={assigneesInput}
-              onChange={(event) => setAssigneesInput(event.target.value)}
-              placeholder="Felipe"
-            />
-          </label>
+            <OptionPicker options={board.assignee_options} selected={assignees} onChange={setAssignees} empty="Create responsibles in the board first" />
+          </div>
         </div>
         <label className="event-dialog-field">
           <span className="event-dialog-label">
@@ -1881,6 +1990,7 @@ function EntityDrawer({
   onClosed,
   onDeleted,
   onRelatedCreated,
+  board,
 }: {
   workspaceId: string;
   accessToken: string;
@@ -1890,12 +2000,13 @@ function EntityDrawer({
   onClosed: (entity: Entity) => void;
   onDeleted: (entity: Entity) => void;
   onRelatedCreated: (entity: Entity) => void;
+  board: Board | null;
 }) {
   const [title, setTitle] = useState(entity.title);
   const [type, setType] = useState<EntityType>(entity.type);
   const [content, setContent] = useState(entity.content);
-  const [labelsInput, setLabelsInput] = useState(stringListProp(entity, "labels").join(", "));
-  const [assigneesInput, setAssigneesInput] = useState(stringListProp(entity, "assignees").join(", "));
+  const [labels, setLabels] = useState(stringListProp(entity, "labels"));
+  const [assignees, setAssignees] = useState(stringListProp(entity, "assignees"));
   const [dueDate, setDueDate] = useState(stringProp(entity, "due_date"));
   const [recurrence, setRecurrence] = useState<CardRecurrence>(
     stringProp(entity, "recurrence") === "daily" ? "daily" : "none",
@@ -1921,8 +2032,8 @@ function EntityDrawer({
     setTitle(entity.title);
     setType(entity.type);
     setContent(entity.content);
-    setLabelsInput(stringListProp(entity, "labels").join(", "));
-    setAssigneesInput(stringListProp(entity, "assignees").join(", "));
+    setLabels(stringListProp(entity, "labels"));
+    setAssignees(stringListProp(entity, "assignees"));
     setDueDate(stringProp(entity, "due_date"));
     setRecurrence(stringProp(entity, "recurrence") === "daily" ? "daily" : "none");
     setChecklist(checklistProp(entity));
@@ -1931,8 +2042,6 @@ function EntityDrawer({
   }, [entity, loadRelated]);
 
   async function saveEntity() {
-    const labels = labelsInput.split(",").map((item) => item.trim()).filter(Boolean);
-    const assignees = assigneesInput.split(",").map((item) => item.trim()).filter(Boolean);
     const response = await fetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
       method: "PATCH",
       headers: apiHeaders(accessToken),
@@ -2078,30 +2187,20 @@ function EntityDrawer({
         </label>
 
         <div className="knowledge-editor-grid">
-          <label className="event-dialog-field">
+          <div className="event-dialog-field">
             <span className="event-dialog-label">
               <Tag size={14} />
               Labels
             </span>
-            <input
-              className="event-dialog-input"
-              value={labelsInput}
-              onChange={(event) => setLabelsInput(event.target.value)}
-              placeholder="frontend, urgent"
-            />
-          </label>
-          <label className="event-dialog-field">
+            <OptionPicker options={board?.label_options ?? labels} selected={labels} onChange={setLabels} empty="Create labels in the board first" />
+          </div>
+          <div className="event-dialog-field">
             <span className="event-dialog-label">
               <UserRound size={14} />
               Responsible
             </span>
-            <input
-              className="event-dialog-input"
-              value={assigneesInput}
-              onChange={(event) => setAssigneesInput(event.target.value)}
-              placeholder="Felipe, Ana"
-            />
-          </label>
+            <OptionPicker options={board?.assignee_options ?? assignees} selected={assignees} onChange={setAssignees} empty="Create responsibles in the board first" />
+          </div>
         </div>
 
         <label className="event-dialog-field">

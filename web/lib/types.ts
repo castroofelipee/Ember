@@ -124,6 +124,8 @@ export type Board = {
   workspace_id: string;
   title: string;
   description: string | null;
+  label_options: string[];
+  assignee_options: string[];
   created_at: string;
   updated_at: string;
   columns: BoardColumn[];
