@@ -231,6 +231,8 @@ export function BoardsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [completionNotice, setCompletionNotice] = useState<string | null>(null);
+  const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
+  const [deletingBoard, setDeletingBoard] = useState(false);
 
   const activeBoard = useMemo(
     () => boards.find((board) => board.id === activeBoardId) ?? boards[0] ?? null,
@@ -476,6 +478,32 @@ export function BoardsView() {
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not delete column.");
+    }
+  }
+
+  async function deleteBoard() {
+    if (!boardToDelete) return;
+    setDeletingBoard(true);
+    try {
+      const response = await fetch(
+        `/api/workspaces/${workspaceId}/boards/${boardToDelete.id}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+      if (!response.ok) throw new Error(await responseError(response, "Could not delete board."));
+      const remainingBoards = boards.filter((board) => board.id !== boardToDelete.id);
+      setBoards(remainingBoards);
+      setActiveBoardId(remainingBoards[0]?.id ?? null);
+      setSelectedEntity(null);
+      setCreatingCardColumn(null);
+      setBoardToDelete(null);
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not delete board.");
+    } finally {
+      setDeletingBoard(false);
     }
   }
 
@@ -804,6 +832,7 @@ export function BoardsView() {
           onSelectEntity={setSelectedEntity}
           onCloseCard={closeCard}
           onDeleteCard={deleteCard}
+          onDeleteBoard={() => activeBoard && setBoardToDelete(activeBoard)}
         />
       </main>
 
@@ -825,6 +854,51 @@ export function BoardsView() {
           onClose={() => setCreatingCardColumn(null)}
           onCreate={createCard}
         />
+      )}
+      {boardToDelete && (
+        <div className="event-delete-backdrop" onClick={() => !deletingBoard && setBoardToDelete(null)}>
+          <div
+            className="event-delete-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="board-delete-title"
+            aria-describedby="board-delete-description"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="event-delete-top">
+              <div className="event-delete-titlewrap">
+                <span className="event-delete-icon"><Trash2 size={16} /></span>
+                <div>
+                  <h2 className="event-delete-title" id="board-delete-title">Delete board</h2>
+                  <p className="event-delete-subtitle">{boardToDelete.title}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="event-delete-close"
+                aria-label="Close"
+                disabled={deletingBoard}
+                onClick={() => setBoardToDelete(null)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="event-delete-body" id="board-delete-description">
+              <div className="event-delete-note">
+                Delete this board and all of its columns? Cards will remain available as workspace entities.
+              </div>
+              <div className="event-delete-actions">
+                <Button type="button" variant="outline" disabled={deletingBoard} onClick={() => setBoardToDelete(null)}>
+                  Cancel
+                </Button>
+                <Button type="button" variant="destructive" disabled={deletingBoard} onClick={deleteBoard}>
+                  <Trash2 />
+                  {deletingBoard ? "Deleting..." : "Delete board"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -850,6 +924,7 @@ function BoardPanel({
   onSelectEntity,
   onCloseCard,
   onDeleteCard,
+  onDeleteBoard,
 }: {
   activeBoard: Board | null;
   columnTitle: string;
@@ -870,6 +945,7 @@ function BoardPanel({
   onSelectEntity: (entity: Entity) => void;
   onCloseCard: (entity: Entity) => void;
   onDeleteCard: (entity: Entity) => void;
+  onDeleteBoard: () => void;
 }) {
   if (!activeBoard) {
     return (
@@ -888,6 +964,10 @@ function BoardPanel({
           <p className="mail-list-kicker">Workspace board</p>
           <h1>{activeBoard.title}</h1>
         </div>
+        <Button type="button" variant="destructive" onClick={onDeleteBoard}>
+          <Trash2 />
+          Delete board
+        </Button>
       </header>
 
       <div className="knowledge-column-create">
