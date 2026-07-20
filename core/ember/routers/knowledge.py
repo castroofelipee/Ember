@@ -17,6 +17,7 @@ from ember.schemas.knowledge import (
     BoardColumnUpdateRequest,
     BoardCreateRequest,
     BoardResponse,
+    BoardUpdateRequest,
     DocumentCreateRequest,
     EntityCreateRequest,
     EntityResponse,
@@ -35,6 +36,7 @@ from ember.services.knowledge import (
     create_entity,
     create_folder,
     create_relation,
+    delete_board,
     delete_board_column,
     delete_entity,
     get_board,
@@ -50,6 +52,7 @@ from ember.services.knowledge import (
     list_related,
     move_board_card,
     update_folder,
+    update_board,
     update_board_column,
     update_entity,
 )
@@ -97,6 +100,8 @@ async def _board_response(db: AsyncSession, board: Board) -> BoardResponse:
         workspace_id=board.workspace_id,
         title=board.title,
         description=board.description,
+        label_options=board.label_options,
+        assignee_options=board.assignee_options,
         created_at=board.created_at,
         updated_at=board.updated_at,
         columns=[BoardColumnResponse.model_validate(column) for column in columns],
@@ -352,6 +357,32 @@ async def get_board_route(
 ) -> BoardResponse:
     await _require_membership(db, workspace_id, current_user.id)
     board = await _get_board_or_404(db, workspace_id, board_id)
+    return await _board_response(db, board)
+
+
+@router.delete("/{workspace_id}/boards/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_board_route(
+    workspace_id: uuid.UUID,
+    board_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await _require_membership(db, workspace_id, current_user.id)
+    board = await _get_board_or_404(db, workspace_id, board_id)
+    await delete_board(db, board)
+
+
+@router.patch("/{workspace_id}/boards/{board_id}")
+async def update_board_route(
+    workspace_id: uuid.UUID,
+    board_id: uuid.UUID,
+    data: BoardUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BoardResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    board = await _get_board_or_404(db, workspace_id, board_id)
+    await update_board(db, board, data)
     return await _board_response(db, board)
 
 

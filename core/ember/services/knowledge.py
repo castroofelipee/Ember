@@ -17,6 +17,7 @@ from ember.schemas.knowledge import (
     BoardColumnCreateRequest,
     BoardColumnUpdateRequest,
     BoardCreateRequest,
+    BoardUpdateRequest,
     EntityCreateRequest,
     EntityUpdateRequest,
     KnowledgeFolderCreateRequest,
@@ -331,6 +332,21 @@ async def list_boards(session: AsyncSession, workspace_id: uuid.UUID) -> list[Bo
             select(Board).where(Board.workspace_id == workspace_id).order_by(Board.created_at)
         )
     ).scalars().all()
+
+
+async def delete_board(session: AsyncSession, board: Board) -> None:
+    await session.delete(board)
+    await session.flush()
+
+
+async def update_board(session: AsyncSession, board: Board, data: BoardUpdateRequest) -> Board:
+    if data.label_options is not None:
+        board.label_options = data.label_options
+    if data.assignee_options is not None:
+        board.assignee_options = data.assignee_options
+    await session.flush()
+    await session.refresh(board)
+    return board
 
 
 async def list_board_columns(session: AsyncSession, board_id: uuid.UUID) -> list[BoardColumn]:

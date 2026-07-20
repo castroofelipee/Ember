@@ -67,6 +67,58 @@ async def test_move_board_column_reorders_columns(client: AsyncClient) -> None:
     assert [column["position"] for column in columns] == [0, 1, 2]
 
 
+async def test_delete_board_removes_it(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    board = await _make_board(client, token, workspace_id)
+
+    response = await client.delete(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 204
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/boards",
+        headers=_auth_header(token),
+    )
+    assert listed.status_code == 200
+    assert listed.json() == []
+
+
+async def test_delete_board_in_others_workspace_returns_404(client: AsyncClient) -> None:
+    token_a = await _signup(client)
+    token_b = await _signup_second_user(client, token_a)
+    workspace_id = await _make_workspace(client, token_a)
+    board = await _make_board(client, token_a, workspace_id)
+
+    response = await client.delete(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}",
+        headers=_auth_header(token_b),
+    )
+
+    assert response.status_code == 404
+
+
+async def test_update_board_assignment_options(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    board = await _make_board(client, token, workspace_id)
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}",
+        headers=_auth_header(token),
+        json={
+            "label_options": ["Urgent", " Backend ", "urgent"],
+            "assignee_options": ["Felipe", " Ana ", "felipe"],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["label_options"] == ["Urgent", "Backend"]
+    assert response.json()["assignee_options"] == ["Felipe", "Ana"]
+
+
 async def test_move_board_column_in_others_workspace_returns_404(client: AsyncClient) -> None:
     token_a = await _signup(client)
     token_b = await _signup_second_user(client, token_a)

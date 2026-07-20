@@ -721,23 +721,25 @@ async def send_mail_message_route(
         ) from exc
     except MailAuthenticationError as exc:
         logger.warning(
-            "Mail server rejected admin credentials sending from %s: %s", account.email, exc
+            "Outbound mail provider rejected authorization sending from %s: %s",
+            account.email,
+            exc,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Mail server rejected the configured admin credentials.",
+            detail="Outbound mail provider rejected the configured credentials or sender domain.",
         ) from exc
     except (MailConnectionError, MailTimeoutError) as exc:
-        logger.warning("Mail server error sending from %s: %s", account.email, exc)
+        logger.warning("Outbound mail provider error sending from %s: %s", account.email, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Could not reach the mail server. Please try again.",
+            detail="Could not reach the outbound mail provider. Please try again.",
         ) from exc
     except MailClientError as exc:
-        logger.warning("Mail server rejected send from %s: %s", account.email, exc)
+        logger.warning("Outbound mail provider rejected send from %s: %s", account.email, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Mail server rejected the send request.",
+            detail="Outbound mail provider rejected the send request.",
         ) from exc
     return MailMessageSendResponse(
         email_id=result.email_id,

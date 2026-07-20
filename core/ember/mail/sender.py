@@ -46,6 +46,7 @@ class StalwartMailSender(MailSender):
 
 class ResendMailSender(MailSender):
     _API_URL = "https://api.resend.com/emails"
+    _USER_AGENT = "Ember/1.0"
 
     def __init__(
         self,
@@ -90,7 +91,10 @@ class ResendMailSender(MailSender):
                 response = await client.post(
                     self._API_URL,
                     json=payload,
-                    headers={"Authorization": f"Bearer {self._api_key}"},
+                    headers={
+                        "Authorization": f"Bearer {self._api_key}",
+                        "User-Agent": self._USER_AGENT,
+                    },
                 )
         except httpx.TimeoutException as exc:
             raise MailTimeoutError(f"Resend did not respond within {self._timeout}s") from exc
@@ -99,7 +103,8 @@ class ResendMailSender(MailSender):
 
         if response.status_code in (401, 403):
             raise MailAuthenticationError(
-                f"Resend rejected API credentials (HTTP {response.status_code})"
+                "Resend rejected outbound authorization "
+                f"(HTTP {response.status_code}): {self._error_detail(response)}"
             )
         if not response.is_success:
             raise MailClientError(
@@ -128,3 +133,16 @@ class ResendMailSender(MailSender):
                     exc,
                 )
         return MailSendResult(email_id=provider_id, submission_id=provider_id)
+
+    @staticmethod
+    def _error_detail(response: httpx.Response) -> str:
+        try:
+            body = response.json()
+        except ValueError:
+            return response.text or "no response body"
+        if isinstance(body, dict):
+            for key in ("message", "error", "name"):
+                value = body.get(key)
+                if value:
+                    return str(value)
+        return response.text or "no response body"

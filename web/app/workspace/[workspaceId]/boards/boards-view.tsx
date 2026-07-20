@@ -130,6 +130,23 @@ function stringListProp(entity: Entity, key: string): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function normalizeBoard(board: Board): Board {
+  const cards = Array.isArray(board.cards) ? board.cards : [];
+  const labels = cards.flatMap((card) => stringListProp(card.entity, "labels"));
+  const assignees = cards.flatMap((card) => stringListProp(card.entity, "assignees"));
+  return {
+    ...board,
+    columns: Array.isArray(board.columns) ? board.columns : [],
+    cards,
+    label_options: Array.isArray(board.label_options)
+      ? board.label_options.filter((item): item is string => typeof item === "string")
+      : Array.from(new Set(labels)),
+    assignee_options: Array.isArray(board.assignee_options)
+      ? board.assignee_options.filter((item): item is string => typeof item === "string")
+      : Array.from(new Set(assignees)),
+  };
+}
+
 function checklistProp(entity: Entity): ChecklistItem[] {
   const value = entity.properties.checklist;
   if (!Array.isArray(value)) return [];
@@ -264,7 +281,7 @@ export function BoardsView() {
         setError("Could not load workspace knowledge.");
         return;
       }
-      const boardItems: Board[] = await boardsResponse.json();
+      const boardItems = ((await boardsResponse.json()) as Board[]).map(normalizeBoard);
       const calendarItems: Calendar[] = await calendarsResponse.json();
       const folderItems: KnowledgeFolder[] = await foldersResponse.json();
       const documentItems: Entity[] = await documentsResponse.json();

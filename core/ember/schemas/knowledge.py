@@ -161,6 +161,26 @@ class BoardCreateRequest(BaseModel):
         return columns
 
 
+class BoardUpdateRequest(BaseModel):
+    label_options: list[str] | None = Field(default=None, max_length=50)
+    assignee_options: list[str] | None = Field(default=None, max_length=50)
+
+    @field_validator("label_options", "assignee_options")
+    @classmethod
+    def normalize_options(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        options: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            stripped = item.strip()
+            key = stripped.lower()
+            if stripped and key not in seen:
+                options.append(stripped)
+                seen.add(key)
+        return options
+
+
 class BoardColumnCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     status_key: str | None = Field(default=None, max_length=80)
@@ -257,6 +277,8 @@ class BoardResponse(BaseModel):
     workspace_id: uuid.UUID
     title: str
     description: str | None
+    label_options: list[str] = Field(default_factory=list)
+    assignee_options: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     columns: list[BoardColumnResponse] = Field(default_factory=list)

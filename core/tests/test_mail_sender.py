@@ -30,6 +30,7 @@ async def test_resend_sends_expected_payload_and_authorization() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["authorization"] = request.headers["Authorization"]
+        seen["user_agent"] = request.headers["User-Agent"]
         seen["payload"] = json.loads(request.content)
         return httpx.Response(200, json={"id": "resend-123"})
 
@@ -46,6 +47,7 @@ async def test_resend_sends_expected_payload_and_authorization() -> None:
     assert seen == {
         "url": "https://api.resend.com/emails",
         "authorization": "Bearer re_secret",
+        "user_agent": "Ember/1.0",
         "payload": {
             "from": "ada@example.com",
             "to": ["grace@example.com"],
@@ -68,6 +70,26 @@ async def test_resend_auth_errors_are_normalized(status: int) -> None:
         await _sender_with(handler).send_message(
             account_id="a",
             from_address="a@example.com",
+            to=("b@example.com",),
+            subject="Hi",
+            text="Body",
+        )
+
+
+async def test_resend_auth_error_includes_provider_detail() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={
+                "name": "validation_error",
+                "message": "The felipecastro.site domain is not verified.",
+            },
+        )
+
+    with pytest.raises(MailAuthenticationError, match="domain is not verified"):
+        await _sender_with(handler).send_message(
+            account_id="a",
+            from_address="felipe@felipecastro.site",
             to=("b@example.com",),
             subject="Hi",
             text="Body",
