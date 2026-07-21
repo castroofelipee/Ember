@@ -1763,6 +1763,7 @@ function BoardCardView({
   const total = checklistProp(card.entity).length;
   const completed = isEffectivelyCompleted(card.entity);
   const recurringDaily = isDailyRecurring(card.entity);
+  const hasDescription = card.entity.content.trim().length > 0;
 
   return (
     <article
@@ -1815,7 +1816,6 @@ function BoardCardView({
         </span>
       </span>
       <strong>{card.entity.title}</strong>
-      {card.entity.content && <span className="knowledge-card-preview">{card.entity.content}</span>}
       {labels.length > 0 && (
         <span className="knowledge-card-labels">
           {labels.map((label) => (
@@ -1824,6 +1824,16 @@ function BoardCardView({
         </span>
       )}
       <span className="knowledge-card-meta">
+        {hasDescription && (
+          <span
+            className="knowledge-card-description"
+            role="img"
+            aria-label="Has description"
+            title="Has description"
+          >
+            <FileText size={13} />
+          </span>
+        )}
         {total > 0 && (
           <span>
             <CheckSquare size={13} /> {done}/{total}
