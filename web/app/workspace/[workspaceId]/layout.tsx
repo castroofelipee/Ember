@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 
 import { WorkspaceReminders } from "./workspace-reminders";
+import { WorkspaceHeader } from "./workspace-header";
 
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
   return (
-    <>
-      {children}
+    <div className="workspace-route-layout">
+      <WorkspaceHeader />
+      <div className="workspace-route-content">{children}</div>
       <WorkspaceReminders />
-    </>
+    </div>
   );
 }

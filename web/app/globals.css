@@ -2875,6 +2875,42 @@
   background: #161616;
 }
 
+.workspace-route-layout,
+.settings-page-layout {
+  display: flex;
+  height: 100dvh;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: #121212;
+}
+
+.workspace-route-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.workspace-route-content > .workspace-layout,
+.workspace-route-content > .knowledge-page,
+.workspace-route-content > .mail-app {
+  height: 100%;
+}
+
+.workspace-route-content > .hub-page {
+  min-height: 100%;
+}
+
+.workspace-route-content .knowledge-doc-layout {
+  height: 100%;
+}
+
+.settings-page-content {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
 .app-header-leading,
 .app-header-actions {
   display: flex;

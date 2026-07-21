@@ -7,8 +7,8 @@ import { CalendarDays, Columns3, Grid3X3, LayoutGrid, Mail, Menu, Settings } fro
 
 type AppHeaderProps = {
   workspaceId: string;
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 };
 
 export function AppHeader({ workspaceId, sidebarOpen, onToggleSidebar }: AppHeaderProps) {
@@ -61,15 +61,17 @@ export function AppHeader({ workspaceId, sidebarOpen, onToggleSidebar }: AppHead
   return (
     <header className="app-header">
       <div className="app-header-leading">
-        <button
-          type="button"
-          className="app-header-icon-button"
-          aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-          aria-expanded={sidebarOpen}
-          onClick={onToggleSidebar}
-        >
-          <Menu size={22} />
-        </button>
+        {onToggleSidebar && (
+          <button
+            type="button"
+            className="app-header-icon-button"
+            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            aria-expanded={sidebarOpen}
+            onClick={onToggleSidebar}
+          >
+            <Menu size={22} />
+          </button>
+        )}
         <button
           type="button"
           className="app-header-brand"
