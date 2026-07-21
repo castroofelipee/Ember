@@ -42,6 +42,7 @@ import type {
   KnowledgeFolder,
   RelatedEntity,
   Calendar,
+  EventItem,
 } from "@/lib/types";
 
 const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
@@ -401,9 +402,14 @@ export function BoardsView() {
       setBoards((prev) => prev.map((item) => (item.id === updatedBoard.id ? updatedBoard : item)));
       setSelectedEntity(createdEntity);
       setCreatingCardColumn(null);
-      if (createdEntity && data.dueDate && isFutureDate(data.dueDate)) {
+      if (createdEntity && data.type === "task" && data.dueDate) {
         try {
-          await createCalendarEventForCard(createdEntity, data.dueDate, data.recurrence);
+          const calendarEvent = await createCalendarEventForCard(createdEntity, data.dueDate, data.recurrence);
+          if (calendarEvent) {
+            const linkedEntity = await updateCalendarEventLink(createdEntity, calendarEvent.id);
+            updateEntityInState(linkedEntity);
+            setSelectedEntity(linkedEntity);
+          }
         } catch (error) {
           setError(error instanceof Error ? error.message : "Card created, but calendar event could not be created.");
           return;
@@ -415,9 +421,13 @@ export function BoardsView() {
     }
   }
 
-  async function createCalendarEventForCard(entity: Entity, dueDate: string, recurrence: CardRecurrence) {
+  async function createCalendarEventForCard(
+    entity: Entity,
+    dueDate: string,
+    recurrence: CardRecurrence,
+  ): Promise<EventItem | null> {
     const calendarId = calendars[0]?.id;
-    if (!calendarId) return;
+    if (!calendarId) return null;
     const response = await fetch(`/api/calendars/${calendarId}/events`, {
       method: "POST",
       headers: apiHeaders(accessToken),
@@ -428,7 +438,7 @@ export function BoardsView() {
         start_at: new Date(`${dueDate}T00:00:00`).toISOString(),
         end_at: nextDayIsoDate(dueDate),
         all_day: true,
-        color: "#21103b",
+        color: "#16a34a",
         attendees: [],
         recurrence:
           recurrence === "daily"
@@ -439,6 +449,65 @@ export function BoardsView() {
     if (!response.ok) {
       throw new Error(await responseError(response, "Card created, but calendar event could not be created."));
     }
+    return await response.json();
+  }
+
+  async function updateCalendarEventLink(entity: Entity, eventId: string): Promise<Entity> {
+    return await jsonRequest<Entity>(
+      `/api/workspaces/${workspaceId}/entities/${entity.id}`,
+      {
+        method: "PATCH",
+        headers: apiHeaders(accessToken),
+        body: JSON.stringify({
+          properties: { ...entity.properties, calendar_event_id: eventId },
+        }),
+      },
+      "Could not link task to calendar event.",
+    );
+  }
+
+  async function syncCalendarEventForCard(entity: Entity): Promise<Entity> {
+    if (entity.type !== "task") return entity;
+    const dueDate = stringProp(entity, "due_date");
+    const eventId = stringProp(entity, "calendar_event_id");
+    const recurrence = stringProp(entity, "recurrence") === "daily" ? "daily" : "none";
+
+    if (!dueDate) {
+      if (!eventId) return entity;
+      const response = await fetch(`/api/events/${eventId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok && response.status !== 404) {
+        throw new Error(await responseError(response, "Could not remove calendar event."));
+      }
+      return await updateCalendarEventLink(entity, "");
+    }
+
+    if (!eventId) {
+      const calendarEvent = await createCalendarEventForCard(entity, dueDate, recurrence);
+      return calendarEvent ? await updateCalendarEventLink(entity, calendarEvent.id) : entity;
+    }
+
+    const response = await fetch(`/api/events/${eventId}`, {
+      method: "PATCH",
+      headers: apiHeaders(accessToken),
+      body: JSON.stringify({
+        start_at: new Date(`${dueDate}T00:00:00`).toISOString(),
+        end_at: nextDayIsoDate(dueDate),
+      }),
+    });
+    if (response.status === 404) {
+      const calendarEvent = await createCalendarEventForCard(entity, dueDate, recurrence);
+      return calendarEvent ? await updateCalendarEventLink(entity, calendarEvent.id) : entity;
+    }
+    if (!response.ok) {
+      throw new Error(await responseError(response, "Could not update calendar event."));
+    }
+    const calendarEvent: EventItem = await response.json();
+    return calendarEvent.id === eventId
+      ? entity
+      : await updateCalendarEventLink(entity, calendarEvent.id);
   }
 
   async function updateColumn(column: BoardColumn, title: string) {
@@ -895,6 +964,7 @@ export function BoardsView() {
           onDeleted={deleteCard}
           onRelatedCreated={updateEntityInState}
           board={activeBoard}
+          onSyncCalendarEvent={syncCalendarEventForCard}
         />
       )}
       {creatingCardColumn && activeBoard && (
@@ -2008,6 +2078,7 @@ function EntityDrawer({
   onDeleted,
   onRelatedCreated,
   board,
+  onSyncCalendarEvent,
 }: {
   workspaceId: string;
   accessToken: string;
@@ -2018,6 +2089,7 @@ function EntityDrawer({
   onDeleted: (entity: Entity) => void;
   onRelatedCreated: (entity: Entity) => void;
   board: Board | null;
+  onSyncCalendarEvent: (entity: Entity) => Promise<Entity>;
 }) {
   const [title, setTitle] = useState(entity.title);
   const [type, setType] = useState<EntityType>(entity.type);
@@ -2081,9 +2153,15 @@ function EntityDrawer({
       return;
     }
     const updated: Entity = await response.json();
-    onUpdated(updated);
-    setDrawerError(null);
-    await loadRelated();
+    try {
+      const synced = await onSyncCalendarEvent(updated);
+      onUpdated(synced);
+      setDrawerError(null);
+      await loadRelated();
+    } catch (error) {
+      onUpdated(updated);
+      setDrawerError(error instanceof Error ? error.message : "Could not sync calendar event.");
+    }
   }
 
   async function searchEntities(value: string) {

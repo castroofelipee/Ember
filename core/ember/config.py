@@ -31,6 +31,8 @@ env = venvalid(
         "MAIL_OUTBOUND_PROVIDER": str_(default="stalwart"),
         "RESEND_API_KEY": str_(default=""),
         "RESEND_TIMEOUT_SECONDS": int_(default=10),
+        "CALENDARIFIC_API_KEY": str_(default=""),
+        "HOLIDAY_HTTP_TIMEOUT_SECONDS": int_(default=15),
     }
 )
 

@@ -12,7 +12,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useRequireAuth } from "@/lib/auth-client";
-import { DEFAULT_PREFERENCES, type Preferences, type TimeFormat, type Workspace } from "@/lib/types";
+import {
+  DEFAULT_HOLIDAY_SETTINGS,
+  DEFAULT_PREFERENCES,
+  type HolidaySettings,
+  type Preferences,
+  type TimeFormat,
+  type Workspace,
+} from "@/lib/types";
 
 import { LOCALE_OPTIONS, TIMEZONE_OPTIONS } from "../onboarding/preferences/locales";
 
@@ -27,6 +34,63 @@ const WEEK_START_OPTIONS = [
 const TIME_FORMAT_OPTIONS: { value: TimeFormat; label: string }[] = [
   { value: "12h", label: "12-hour (1 PM)" },
   { value: "24h", label: "24-hour (13:00)" },
+];
+
+const COUNTRY_OPTIONS = [
+  { value: "BR", label: "Brazil" },
+  { value: "US", label: "United States" },
+  { value: "PT", label: "Portugal" },
+  { value: "ES", label: "Spain" },
+  { value: "FR", label: "France" },
+  { value: "DE", label: "Germany" },
+  { value: "GB", label: "United Kingdom" },
+  { value: "CA", label: "Canada" },
+  { value: "MX", label: "Mexico" },
+  { value: "AR", label: "Argentina" },
+] as const;
+
+const OPEN_HOLIDAYS_COUNTRIES = [
+  { value: "AL", label: "Albania" },
+  { value: "AD", label: "Andorra" },
+  { value: "AT", label: "Austria" },
+  { value: "BY", label: "Belarus" },
+  { value: "BE", label: "Belgium" },
+  { value: "BR", label: "Brazil" },
+  { value: "BG", label: "Bulgaria" },
+  { value: "HR", label: "Croatia" },
+  { value: "CZ", label: "Czechia" },
+  { value: "EE", label: "Estonia" },
+  { value: "FR", label: "France" },
+  { value: "DE", label: "Germany" },
+  { value: "HU", label: "Hungary" },
+  { value: "IE", label: "Ireland" },
+  { value: "IT", label: "Italy" },
+  { value: "LV", label: "Latvia" },
+  { value: "LI", label: "Liechtenstein" },
+  { value: "LT", label: "Lithuania" },
+  { value: "LU", label: "Luxembourg" },
+  { value: "MT", label: "Malta" },
+  { value: "MX", label: "Mexico" },
+  { value: "MD", label: "Moldova" },
+  { value: "MC", label: "Monaco" },
+  { value: "NL", label: "Netherlands" },
+  { value: "PL", label: "Poland" },
+  { value: "PT", label: "Portugal" },
+  { value: "RO", label: "Romania" },
+  { value: "SM", label: "San Marino" },
+  { value: "RS", label: "Serbia" },
+  { value: "SK", label: "Slovakia" },
+  { value: "SI", label: "Slovenia" },
+  { value: "ZA", label: "South Africa" },
+  { value: "ES", label: "Spain" },
+  { value: "SE", label: "Sweden" },
+  { value: "CH", label: "Switzerland" },
+  { value: "VA", label: "Vatican City" },
+] as const;
+
+const BRAZIL_STATES = [
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG",
+  "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
 ];
 
 function hourLabel(hour: number, format: TimeFormat): string {
@@ -44,6 +108,10 @@ export function SettingsForm() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [holidays, setHolidays] = useState<HolidaySettings>(DEFAULT_HOLIDAY_SETTINGS);
+  const holidayCountryOptions = holidays.provider === "openholidays"
+    ? OPEN_HOLIDAYS_COUNTRIES
+    : COUNTRY_OPTIONS;
 
   useEffect(() => {
     if (authStatus !== "ready") return;
@@ -68,11 +136,18 @@ export function SettingsForm() {
     if (authStatus !== "ready" || !workspaceId) return;
     let cancelled = false;
 
-    fetch(`/api/workspaces/${workspaceId}/preferences`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).then(async (response) => {
+    Promise.all([
+      fetch(`/api/workspaces/${workspaceId}/preferences`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }),
+      fetch(`/api/workspaces/${workspaceId}/holiday-settings`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }),
+    ]).then(async ([preferencesResponse, holidayResponse]) => {
       if (cancelled) return;
-      if (response.ok) setPrefs(await response.json());
+      if (preferencesResponse.ok) setPrefs(await preferencesResponse.json());
+      if (holidayResponse.ok) setHolidays(await holidayResponse.json());
+      else setHolidays(DEFAULT_HOLIDAY_SETTINGS);
       setStatus((prev) => (prev === "loading" ? "ready" : prev));
     });
 
@@ -111,16 +186,25 @@ export function SettingsForm() {
         body: JSON.stringify(prefs),
       });
 
-      if (response.ok) {
-        setPrefs(await response.json());
-        setStatus("success");
-        return;
+      if (!response.ok) throw new Error("Could not save your settings. Please try again.");
+      setPrefs(await response.json());
+      const holidayResponse = await fetch(`/api/workspaces/${workspaceId}/holiday-settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(holidays),
+      });
+      if (!holidayResponse.ok) {
+        const body = await holidayResponse.json().catch(() => null);
+        throw new Error(body?.detail ?? "Could not synchronize holidays.");
       }
-
-      setErrorMessage("Could not save your settings. Please try again.");
-      setStatus("ready");
-    } catch {
-      setErrorMessage("Could not reach the server. Please try again.");
+      setHolidays(await holidayResponse.json());
+      setStatus("success");
+      return;
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not reach the server. Please try again.");
       setStatus("ready");
     }
   }
@@ -306,6 +390,99 @@ export function SettingsForm() {
             </Select>
           </div>
         </div>
+      </section>
+
+      <section className="settings-section">
+        <h2 className="settings-section-title">Holidays</h2>
+        <p className="settings-section-hint">
+          Synchronize national and local holidays as all-day events in a separate calendar.
+        </p>
+        <label className="settings-holiday-toggle">
+          <input
+            type="checkbox"
+            checked={holidays.enabled}
+            onChange={(event) => setHolidays((prev) => ({ ...prev, enabled: event.target.checked }))}
+          />
+          <span>Show holidays in this workspace</span>
+        </label>
+        <div className="settings-grid">
+          <div className="form-field">
+            <Label htmlFor="holiday-provider" className="form-label">Provider</Label>
+            <Select
+              value={holidays.provider}
+              onValueChange={(value) => setHolidays((prev) => ({
+                ...prev,
+                provider: value as HolidaySettings["provider"],
+                country: value === "openholidays"
+                  && !OPEN_HOLIDAYS_COUNTRIES.some((country) => country.value === prev.country)
+                  ? "BR"
+                  : prev.country,
+                region: value === "openholidays"
+                  && !OPEN_HOLIDAYS_COUNTRIES.some((country) => country.value === prev.country)
+                  ? ""
+                  : prev.region,
+                city: "",
+              }))}
+            >
+              <SelectTrigger id="holiday-provider" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="calendarific">Calendarific</SelectItem>
+                <SelectItem value="openholidays">OpenHolidays</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="form-field">
+            <Label htmlFor="holiday-country" className="form-label">Country</Label>
+            <Select
+              value={holidays.country}
+              onValueChange={(country) => setHolidays((prev) => ({ ...prev, country, region: "", city: "" }))}
+            >
+              <SelectTrigger id="holiday-country" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {holidayCountryOptions.map((country) => (
+                  <SelectItem value={country.value} key={country.value}>{country.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="form-field">
+            <Label htmlFor="holiday-region" className="form-label">State or region</Label>
+            {holidays.country === "BR" ? (
+              <Select
+                value={holidays.region || "national"}
+                onValueChange={(region) => setHolidays((prev) => ({ ...prev, region: region === "national" ? "" : region, city: "" }))}
+              >
+                <SelectTrigger id="holiday-region" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="national">National only</SelectItem>
+                  {BRAZIL_STATES.map((state) => <SelectItem value={state} key={state}>{state}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            ) : (
+              <input
+                id="holiday-region"
+                className="form-input"
+                value={holidays.region}
+                onChange={(event) => setHolidays((prev) => ({ ...prev, region: event.target.value.toUpperCase() }))}
+                placeholder="ISO subdivision, e.g. CA"
+              />
+            )}
+          </div>
+          <div className="form-field">
+            <Label htmlFor="holiday-city" className="form-label">City</Label>
+            <input
+              id="holiday-city"
+              className="form-input"
+              value={holidays.city}
+              disabled
+              onChange={(event) => setHolidays((prev) => ({ ...prev, city: event.target.value }))}
+              placeholder="Not supported by this provider"
+            />
+          </div>
+        </div>
+        {holidays.synced_events > 0 && (
+          <p className="settings-section-hint">{holidays.synced_events} holidays synchronized.</p>
+        )}
       </section>
 
       {errorMessage && <p className="form-error form-error--summary">{errorMessage}</p>}

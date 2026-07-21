@@ -34,6 +34,7 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     # Optional per-event override; when null the calendar's color is used.
     color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    external_id: Mapped[str | None] = mapped_column(String(240), nullable=True)
 
     # Recurrence: null recurrence_freq means a one-off event. When set, this
     # row is the recurring series' "master" and occurrences are expanded at
@@ -79,6 +80,7 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         # the week/day lookups cheap.
         Index("ix_events_start_at", "start_at"),
         Index("ix_events_end_at", "end_at"),
+        UniqueConstraint("calendar_id", "external_id", name="uq_events_calendar_external_id"),
     )
 
 

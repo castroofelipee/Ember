@@ -316,6 +316,21 @@
   gap: 1rem;
 }
 
+.settings-holiday-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #d0d0d0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.settings-holiday-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #16a34a;
+}
+
 .settings-actions {
   display: flex;
   align-items: center;

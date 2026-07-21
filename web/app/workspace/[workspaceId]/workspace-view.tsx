@@ -25,12 +25,24 @@ type DialogState = { open: false } | { open: true; initialStart?: Date };
 type SelectedEvent = { event: WeekEvent; anchor: DOMRect };
 type DeleteDialogState = { open: false } | { open: true; event: WeekEvent };
 
+function localDateInTimeZone(value: string, timeZone: string): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(new Date(value));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return new Date(Number(values.year), Number(values.month) - 1, Number(values.day));
+}
+
 export function WorkspaceView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { status: authStatus, accessToken } = useRequireAuth();
   const [status, setStatus] = useState<Status>("loading");
   const [calendars, setCalendars] = useState<Calendar[]>([]);
+  const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set());
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
   // Focused day shared by the mini-calendar and the main view; `view` toggles
   // between the full week and a single-day view of that day.
@@ -52,23 +64,31 @@ export function WorkspaceView() {
   const calendarNames = new Map(calendars.map((c) => [c.id, c.name]));
 
   const toWeekEvent = useCallback(
-    (item: EventItem): WeekEvent => ({
-      id: item.id,
-      calendarId: item.calendar_id,
-      calendarName: calendarNames.get(item.calendar_id),
-      title: item.title,
-      description: item.description,
-      location: item.location,
-      attendees: item.attendees,
-      start: new Date(item.start_at),
-      end: new Date(item.end_at),
-      allDay: item.all_day,
-      color: item.color ?? calendarColors.get(item.calendar_id) ?? DEFAULT_CALENDAR_COLOR,
-      recurrence: item.recurrence,
-    }),
+    (item: EventItem): WeekEvent => {
+      const start = item.all_day
+        ? localDateInTimeZone(item.start_at, preferences.timezone)
+        : new Date(item.start_at);
+      const end = item.all_day
+        ? localDateInTimeZone(item.end_at, preferences.timezone)
+        : new Date(item.end_at);
+      return {
+        id: item.id,
+        calendarId: item.calendar_id,
+        calendarName: calendarNames.get(item.calendar_id),
+        title: item.title,
+        description: item.description,
+        location: item.location,
+        attendees: item.attendees,
+        start,
+        end,
+        allDay: item.all_day,
+        color: item.color ?? calendarColors.get(item.calendar_id) ?? DEFAULT_CALENDAR_COLOR,
+        recurrence: item.recurrence,
+      };
+    },
     // calendarColors/Names are derived from calendars each render; key on calendars.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [calendars],
+    [calendars, preferences.timezone],
   );
 
   const loadEvents = useCallback(
@@ -101,6 +121,15 @@ export function WorkspaceView() {
   const refetchEvents = useCallback(() => {
     if (rangeRef.current) void loadEvents(rangeRef.current.start, rangeRef.current.end);
   }, [loadEvents]);
+
+  const toggleCalendar = useCallback((calendarId: string) => {
+    setHiddenCalendarIds((current) => {
+      const next = new Set(current);
+      if (next.has(calendarId)) next.delete(calendarId);
+      else next.add(calendarId);
+      return next;
+    });
+  }, []);
 
   const moveEvent = useCallback(
     async (event: WeekEvent, start: Date, end: Date) => {
@@ -206,9 +235,19 @@ export function WorkspaceView() {
 
     let cancelled = false;
 
-    fetch(`/api/workspaces/${workspaceId}/calendars`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).then(async (response) => {
+    const loadCalendars = async () => {
+      await fetch(`/api/workspaces/${workspaceId}/holiday-settings/sync`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const [response, preferencesResponse] = await Promise.all([
+        fetch(`/api/workspaces/${workspaceId}/calendars`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+        fetch(`/api/workspaces/${workspaceId}/preferences`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      ]);
       if (cancelled) return;
       if (response.status === 404) {
         setStatus("not-found");
@@ -216,18 +255,12 @@ export function WorkspaceView() {
       }
       if (response.ok) {
         setCalendars(await response.json());
+        if (preferencesResponse.ok) setPreferences(await preferencesResponse.json());
         setStatus("ready");
       }
-    });
+    };
 
-    // Preferences drive how the week renders (start day, working hours, time
-    // format); a failure just falls back to the defaults already in state.
-    fetch(`/api/workspaces/${workspaceId}/preferences`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).then(async (response) => {
-      if (cancelled) return;
-      if (response.ok) setPreferences(await response.json());
-    });
+    void loadCalendars();
 
     return () => {
       cancelled = true;
@@ -269,6 +302,7 @@ export function WorkspaceView() {
       <div className="workspace-content">
         <Sidebar
           calendars={calendars}
+          hiddenCalendarIds={hiddenCalendarIds}
           selectedDate={focusDate}
           open={sidebarOpen}
           onSelectDay={(date) => {
@@ -276,6 +310,7 @@ export function WorkspaceView() {
             setView("day");
           }}
           onCreateEvent={() => setDialog({ open: true })}
+          onToggleCalendar={toggleCalendar}
         />
         <main className="calendar-main">
           <WeekView
@@ -284,6 +319,7 @@ export function WorkspaceView() {
             view={view}
             date={focusDate}
             events={events}
+            hiddenCalendarIds={hiddenCalendarIds}
             onDateChange={setFocusDate}
             onViewChange={setView}
             onVisibleRangeChange={handleVisibleRangeChange}

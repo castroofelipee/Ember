@@ -1,14 +1,26 @@
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ember.db import get_db
 from ember.dependencies import get_current_user
-from ember.models import User
+from ember.models import User, Workspace
 from ember.schemas.calendars import CalendarCreateRequest, CalendarResponse
 from ember.schemas.users import PreferencesResponse, PreferencesUpdateRequest
-from ember.schemas.workspaces import WorkspaceCreateRequest, WorkspaceResponse
+from ember.schemas.workspaces import (
+    HolidaySettingsResponse,
+    HolidaySettingsUpdateRequest,
+    WorkspaceCreateRequest,
+    WorkspaceResponse,
+)
+from ember.services.holidays import (
+    HolidaySyncError,
+    disable_holidays,
+    get_holiday_calendar,
+    sync_holidays,
+)
 from ember.services.calendars import create_calendar, list_calendars
 from ember.services.users import get_preferences, update_preferences
 from ember.services.workspaces import (
@@ -23,7 +35,9 @@ router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
 _NOT_FOUND = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
 
 
-async def _require_membership(db: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID) -> None:
+async def _require_membership(
+    db: AsyncSession, workspace_id: uuid.UUID, user_id: uuid.UUID
+) -> None:
     try:
         await assert_workspace_member(db, workspace_id, user_id)
     except NotAWorkspaceMemberError as exc:
@@ -98,3 +112,105 @@ async def update_workspace_preferences_route(
     await _require_membership(db, workspace_id, current_user.id)
     preferences = await update_preferences(db, current_user.id, workspace_id, data)
     return PreferencesResponse.model_validate(preferences)
+
+
+@router.get("/{workspace_id}/holiday-settings")
+async def get_holiday_settings_route(
+    workspace_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HolidaySettingsResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    workspace = await db.get(Workspace, workspace_id)
+    if workspace is None:
+        raise _NOT_FOUND
+    calendar = await get_holiday_calendar(db, workspace_id)
+    return HolidaySettingsResponse(
+        enabled=workspace.holiday_enabled,
+        provider=workspace.holiday_provider or "openholidays",
+        country=workspace.holiday_country or "BR",
+        region=workspace.holiday_region or "",
+        city=workspace.holiday_city or "",
+        calendar_id=calendar.id if calendar else None,
+    )
+
+
+@router.patch("/{workspace_id}/holiday-settings")
+async def update_holiday_settings_route(
+    workspace_id: uuid.UUID,
+    data: HolidaySettingsUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HolidaySettingsResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    workspace = await db.get(Workspace, workspace_id)
+    if workspace is None:
+        raise _NOT_FOUND
+    workspace.holiday_provider = data.provider
+    workspace.holiday_country = data.country
+    workspace.holiday_region = data.region or None
+    workspace.holiday_city = data.city or None
+    workspace.holiday_enabled = data.enabled
+    if not data.enabled:
+        await disable_holidays(db, workspace)
+        return HolidaySettingsResponse(
+            enabled=False,
+            provider=data.provider,
+            country=data.country,
+            region=data.region,
+            city=data.city,
+        )
+    preferences = await get_preferences(db, current_user.id, workspace_id)
+    try:
+        calendar, synced_events = await sync_holidays(db, workspace, preferences.timezone)
+    except (HolidaySyncError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return HolidaySettingsResponse(
+        enabled=True,
+        provider=data.provider,
+        country=data.country,
+        region=data.region,
+        city=data.city,
+        calendar_id=calendar.id,
+        synced_events=synced_events,
+    )
+
+
+@router.post("/{workspace_id}/holiday-settings/sync")
+async def sync_holiday_settings_route(
+    workspace_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HolidaySettingsResponse:
+    await _require_membership(db, workspace_id, current_user.id)
+    workspace = await db.get(Workspace, workspace_id)
+    if workspace is None:
+        raise _NOT_FOUND
+    calendar = await get_holiday_calendar(db, workspace_id)
+    provider = workspace.holiday_provider or "openholidays"
+    country = workspace.holiday_country or "BR"
+    region = workspace.holiday_region or ""
+    city = workspace.holiday_city or ""
+    if not workspace.holiday_enabled:
+        return HolidaySettingsResponse(
+            enabled=False,
+            provider=provider,
+            country=country,
+            region=region,
+            city=city,
+            calendar_id=calendar.id if calendar else None,
+        )
+    preferences = await get_preferences(db, current_user.id, workspace_id)
+    try:
+        calendar, synced_events = await sync_holidays(db, workspace, preferences.timezone)
+    except (HolidaySyncError, httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    return HolidaySettingsResponse(
+        enabled=True,
+        provider=provider,
+        country=country,
+        region=region,
+        city=city,
+        calendar_id=calendar.id,
+        synced_events=synced_events,
+    )

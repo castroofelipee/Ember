@@ -14,17 +14,21 @@ import { MiniCalendar } from "./mini-calendar";
 
 type SidebarProps = {
   calendars: Calendar[];
+  hiddenCalendarIds: Set<string>;
   selectedDate: Date;
   onSelectDay: (date: Date) => void;
   onCreateEvent: () => void;
+  onToggleCalendar: (id: string) => void;
   open: boolean;
 };
 
 export function Sidebar({
   calendars,
+  hiddenCalendarIds,
   selectedDate,
   onSelectDay,
   onCreateEvent,
+  onToggleCalendar,
   open,
 }: SidebarProps) {
   return (
@@ -47,7 +51,11 @@ export function Sidebar({
             />
           </div>
 
-          <MyCalendars calendars={calendars} />
+          <MyCalendars
+            calendars={calendars}
+            hiddenCalendarIds={hiddenCalendarIds}
+            onToggleCalendar={onToggleCalendar}
+          />
         </>
       )}
 
@@ -55,17 +63,16 @@ export function Sidebar({
   );
 }
 
-function MyCalendars({ calendars }: { calendars: Calendar[] }) {
+function MyCalendars({
+  calendars,
+  hiddenCalendarIds,
+  onToggleCalendar,
+}: {
+  calendars: Calendar[];
+  hiddenCalendarIds: Set<string>;
+  onToggleCalendar: (id: string) => void;
+}) {
   const [expanded, setExpanded] = useState(true);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-
-  const toggle = (id: string) =>
-    setHidden((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   return (
     <div className="sidebar-section">
@@ -88,7 +95,7 @@ function MyCalendars({ calendars }: { calendars: Calendar[] }) {
             <li className="sidebar-calendar-empty">No calendars yet.</li>
           ) : (
             calendars.map((calendar) => {
-              const checked = !hidden.has(calendar.id);
+              const checked = !hiddenCalendarIds.has(calendar.id);
               return (
                 <li key={calendar.id}>
                   <button
@@ -96,7 +103,7 @@ function MyCalendars({ calendars }: { calendars: Calendar[] }) {
                     className="sidebar-calendar-item"
                     role="checkbox"
                     aria-checked={checked}
-                    onClick={() => toggle(calendar.id)}
+                    onClick={() => onToggleCalendar(calendar.id)}
                   >
                     <span
                       className={`sidebar-check${checked ? " sidebar-check--on" : ""}`}

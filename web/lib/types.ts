@@ -249,6 +249,26 @@ export type Preferences = {
   time_format: TimeFormat;
 };
 
+export type HolidaySettings = {
+  enabled: boolean;
+  provider: "calendarific" | "openholidays";
+  country: string;
+  region: string;
+  city: string;
+  calendar_id: string | null;
+  synced_events: number;
+};
+
+export const DEFAULT_HOLIDAY_SETTINGS: HolidaySettings = {
+  enabled: false,
+  provider: "openholidays",
+  country: "BR",
+  region: "",
+  city: "",
+  calendar_id: null,
+  synced_events: 0,
+};
+
 export const DEFAULT_PREFERENCES: Preferences = {
   locale: "en-US",
   timezone: "UTC",
