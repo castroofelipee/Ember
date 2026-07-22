@@ -1,8 +1,8 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- Cloudinary supplies optimized image URLs. */
 
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Link2, X } from "lucide-react";
+import { useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Link2, Upload, X } from "lucide-react";
 import type { PersonalItem } from "@/lib/types";
 
 type Point = { x: number; y: number };
@@ -11,7 +11,8 @@ type Connection = { from: string; to: string };
 type VisionCanvasProps = {
   wall: PersonalItem;
   images: PersonalItem[];
-  onAdd: () => void;
+  uploading: boolean;
+  onUpload: (files: FileList | File[]) => void;
   onRemove: (image: PersonalItem) => void;
   onUpdate: (item: PersonalItem, data: Record<string, unknown>) => Promise<void>;
 };
@@ -41,8 +42,10 @@ function initialPoint(image: PersonalItem, index: number): Point {
   };
 }
 
-export function VisionCanvas({ wall, images, onAdd, onRemove, onUpdate }: VisionCanvasProps) {
+export function VisionCanvas({ wall, images, uploading, onUpload, onRemove, onUpdate }: VisionCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [dropActive, setDropActive] = useState(false);
   const [positions, setPositions] = useState<Record<string, Point>>({});
   const positionsRef = useRef<Record<string, Point>>({});
   const [sizes, setSizes] = useState<Record<string, Size>>({});
@@ -137,6 +140,22 @@ export function VisionCanvas({ wall, images, onAdd, onRemove, onUpdate }: Vision
     if (drag) { void finishMove(event); }
   }
 
+  function openPicker() {
+    if (!uploading) fileRef.current?.click();
+  }
+
+  // Click on the empty canvas background (not a node) opens the file picker.
+  function onCanvasClick(event: ReactMouseEvent) {
+    if (link || drag || resize) return;
+    if (event.target === canvasRef.current) openPicker();
+  }
+
+  function onDrop(event: ReactDragEvent) {
+    event.preventDefault();
+    setDropActive(false);
+    if (event.dataTransfer.files.length) onUpload(event.dataTransfer.files);
+  }
+
   async function connectTo(target: string) {
     if (!link || target === link.from) return;
       const exists = connections.some((connection) =>
@@ -157,12 +176,20 @@ export function VisionCanvas({ wall, images, onAdd, onRemove, onUpdate }: Vision
 
   return <div
     ref={canvasRef}
-    className={`vision-canvas${drag ? " vision-canvas--dragging" : ""}`}
+    className={`vision-canvas${drag ? " vision-canvas--dragging" : ""}${dropActive ? " vision-canvas--drop" : ""}`}
     onPointerMove={move}
     onPointerUp={finishInteraction}
     onPointerCancel={() => { setDrag(null); setResize(null); setLink(null); setLinkTarget(null); }}
+    onClick={onCanvasClick}
+    onDragEnter={(event) => { event.preventDefault(); setDropActive(true); }}
+    onDragOver={(event) => { event.preventDefault(); setDropActive(true); }}
+    onDragLeave={(event) => { if (!canvasRef.current?.contains(event.relatedTarget as Node)) setDropActive(false); }}
+    onDrop={onDrop}
   >
+    <input ref={fileRef} hidden type="file" accept="image/*" multiple onChange={(event) => { if (event.target.files?.length) onUpload(event.target.files); event.target.value = ""; }}/>
     {link && <div className="vision-link-hint"><Link2 size={14}/>Click another image to connect</div>}
+    {dropActive && <div className="vision-drop-hint"><Upload size={22}/><strong>Drop images to add them</strong></div>}
+    {uploading && <div className="vision-uploading-hint"><Upload size={15}/>Uploading…</div>}
     <svg className="vision-connections" aria-hidden="true">
       {connections.map((connection) => { const from = center(connection.from); const to = center(connection.to); if (!from || !to) return null; return <g key={`${connection.from}-${connection.to}`}><line x1={from.x} y1={from.y} x2={to.x} y2={to.y}/><circle cx={from.x} cy={from.y} r="4"/><circle cx={to.x} cy={to.y} r="4"/></g>; })}
       {link && (() => { const from = center(link.from); return from ? <g><line className="vision-connection-preview" x1={from.x} y1={from.y} x2={link.pointer.x} y2={link.pointer.y}/><circle cx={from.x} cy={from.y} r="4"/><circle cx={link.pointer.x} cy={link.pointer.y} r="4"/></g> : null; })()}
@@ -200,7 +227,7 @@ export function VisionCanvas({ wall, images, onAdd, onRemove, onUpdate }: Vision
         onPointerDown={(event) => startResize(event, image)}
       />
     </figure>; })}
-    {!images.length && <button className="vision-wall-empty" onClick={onAdd}><ImageIcon/><span>Add the first image</span></button>}
+    {!images.length && <button className="vision-wall-empty" onClick={openPicker}><ImageIcon/><span>Click or drop images to add them</span></button>}
   </div>;
 }
 

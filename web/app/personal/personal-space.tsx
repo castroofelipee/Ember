@@ -92,16 +92,23 @@ export function PersonalSpace() {
     setGoalName(""); setGoalDescription(""); setGoalHorizon("short"); setTimeframeMode("none"); setGoalModal(false);
   }
 
-  async function uploadImages(files: FileList | File[]) {
-    if (!uploadWall || files.length === 0) return;
+  async function uploadImagesTo(wall: PersonalItem, files: FileList | File[]) {
+    const list = Array.from(files).filter((file) => file.type.startsWith("image/"));
+    if (!wall || list.length === 0) return;
     setUploading(true);
-    for (const file of Array.from(files)) {
+    for (const file of list) {
       const body = new FormData();
-      body.append("wall_id", uploadWall.id); body.append("file", file);
+      body.append("wall_id", wall.id); body.append("file", file);
       const response = await fetch("/api/personal/vision/upload", { method: "POST", headers: authHeaders, body });
       if (response.ok) { const created: PersonalItem = await response.json(); setItems((current) => [created, ...current]); }
     }
-    setUploading(false); setUploadWall(null);
+    setUploading(false);
+  }
+
+  async function uploadImages(files: FileList | File[]) {
+    if (!uploadWall) return;
+    await uploadImagesTo(uploadWall, files);
+    setUploadWall(null);
   }
 
   async function createHabit(habitTitle: string, data: HabitData) {
@@ -148,7 +155,7 @@ export function PersonalSpace() {
         {activeWall ? (() => { const images = items.filter((item) => item.data.type === "image" && item.data.wall_id === activeWall.id); const goals = items.filter((item) => item.data.type === "goal" && item.data.wall_id === activeWall.id); return <section className="vision-board-detail">
           <div className="vision-board-detail-head"><button className="vision-back" onClick={() => setActiveWallId(null)}><ArrowLeft size={17}/>All boards</button><div><h2>{activeWall.title}</h2><span>{goals.length} {goals.length === 1 ? "goal" : "goals"} · {images.length} {images.length === 1 ? "image" : "images"}</span></div><div className="vision-board-actions"><button onClick={() => setGoalModal(true)}><Target size={16}/>Add goal</button><button title="Add images" onClick={() => setUploadWall(activeWall)}><Upload size={16}/>Add images</button><button className="vision-delete-board" title="Delete board" onClick={() => { void remove(activeWall); setActiveWallId(null); }}><Trash2 size={15}/></button></div></div>
           <div className="vision-goals">{goals.map((goal) => <article className="vision-goal-card" key={goal.id}><span className={`vision-goal-horizon vision-goal-horizon--${String(goal.data.horizon)}`}>{horizonLabel(goal)}</span><h3>{goal.title}</h3>{Boolean(goal.data.description) && <p>{String(goal.data.description)}</p>}<footer><span>{timeframeLabel(goal)}</span><button aria-label="Delete goal" onClick={() => remove(goal)}><Trash2 size={14}/></button></footer></article>)}{!goals.length && <button className="vision-goal-empty" onClick={() => setGoalModal(true)}><Target size={19}/><span>Add your first goal</span></button>}</div>
-          <VisionCanvas wall={activeWall} images={images} onAdd={() => setUploadWall(activeWall)} onRemove={remove} onUpdate={updateItemData}/>
+          <VisionCanvas wall={activeWall} images={images} uploading={uploading} onUpload={(files) => uploadImagesTo(activeWall, files)} onRemove={remove} onUpdate={updateItemData}/>
         </section>; })() : <>
           <div className="vision-toolbar"><div><strong>Your vision boards</strong><span>Create a space, then define goals and inspiration inside it.</span></div><button onClick={() => setWallModal(true)}><Plus size={17}/>New board</button></div>
           <section className="vision-board-grid">{walls.map((wall) => { const images = items.filter((item) => item.data.type === "image" && item.data.wall_id === wall.id); const goals = items.filter((item) => item.data.type === "goal" && item.data.wall_id === wall.id); return <button className="vision-board-card" key={wall.id} onClick={() => setActiveWallId(wall.id)}><div className="vision-board-preview">{images.slice(0, 3).map((image) => <span key={image.id} style={{ backgroundImage: `url(${String(image.data.image_url)})` }}/>) }{!images.length && <ImageIcon size={24}/>}</div><div className="vision-board-card-copy"><strong>{wall.title}</strong><span>{goals.length} {goals.length === 1 ? "goal" : "goals"} · {images.length} {images.length === 1 ? "image" : "images"}</span></div></button>; })}<button className="vision-board-add" onClick={() => setWallModal(true)}><Plus size={18}/><span>Create a new board</span></button></section>

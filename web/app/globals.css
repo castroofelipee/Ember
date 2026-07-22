@@ -3987,6 +3987,10 @@ button.mini-calendar-day--selected:hover {
 .vision-wall header button { width: 2rem; height: 2rem; border: 0; border-radius: 50%; background: transparent; color: #999; cursor: pointer; }
 .vision-wall header button:hover { background: #292929; color: #fff; }
 .vision-canvas { position: relative; height: min(38rem, 68vh); min-height: 28rem; margin: 0 .75rem .75rem; overflow: hidden; border: 1px solid #282828; border-radius: 1rem; background-color: #141414; background-image: radial-gradient(circle, #303030 1px, transparent 1px); background-size: 24px 24px; touch-action: none; }
+.vision-canvas:not(.vision-canvas--dragging) { cursor: default; }
+.vision-canvas--drop { border-color: #d8b4fe; box-shadow: inset 0 0 0 2px rgba(216,180,254,.4); }
+.vision-drop-hint { position: absolute; inset: 0; z-index: 9; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .5rem; border-radius: inherit; background: rgba(20,12,34,.72); color: #eadcff; backdrop-filter: blur(3px); pointer-events: none; }
+.vision-uploading-hint { position: absolute; top: .7rem; right: .7rem; z-index: 9; display: flex; align-items: center; gap: .4rem; border-radius: 999px; padding: .35rem .7rem; background: rgba(33,16,59,.92); color: #eadcff; font-size: .75rem; pointer-events: none; }
 .vision-connections { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .vision-connections line { stroke: #9d7bc2; stroke-width: 2; stroke-linecap: round; }
 .vision-connections circle { fill: #d8b4fe; stroke: #21103b; stroke-width: 2; }
