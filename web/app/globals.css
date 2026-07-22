@@ -4002,6 +4002,9 @@ button.mini-calendar-day--selected:hover {
 .vision-node .vision-node-link { top: 50%; right: -.75rem; width: 1.55rem; height: 1.55rem; border: 2px solid #d8b4fe; background: #21103b; color: #d8b4fe; opacity: 1; transform: translateY(-50%); cursor: crosshair; }
 .vision-node .vision-node-link:hover { transform: translateY(-50%) scale(1.12); }
 .vision-node .vision-node-link--active { background: #d8b4fe; color: #21103b; box-shadow: 0 0 0 4px rgba(216,180,254,.2); }
+.vision-node--resizing { z-index: 4; box-shadow: 0 15px 38px rgba(0,0,0,.55); }
+.vision-node .vision-node-resize { right: -.5rem; bottom: -.5rem; width: 1.2rem; height: 1.2rem; border: 2px solid #d8b4fe; border-radius: .35rem; background: rgba(15,15,15,.85); cursor: nwse-resize; touch-action: none; }
+.vision-node .vision-node-resize:hover { transform: scale(1.12); }
 .vision-canvas .vision-wall-empty { position: absolute; inset: 1rem; width: calc(100% - 2rem); }
 .vision-empty-symbol { font-size: 2rem; font-weight: 250; }
 .vision-wall-empty, .vision-first-wall { width: 100%; border: 1px dashed #3a3a3a; border-radius: 1rem; background: transparent; color: #888; cursor: pointer; }
