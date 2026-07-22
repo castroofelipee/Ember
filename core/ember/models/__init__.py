@@ -18,6 +18,7 @@ from ember.models.refresh_token import RefreshToken
 from ember.models.session import Session
 from ember.models.user import User
 from ember.models.user_preferences import UserPreferences
+from ember.models.personal import PersonalItem, PersonalItemKind
 from ember.models.workspace import Workspace
 from ember.models.workspace_member import WorkspaceMember, WorkspaceRole
 
@@ -44,6 +45,8 @@ __all__ = [
     "Session",
     "User",
     "UserPreferences",
+    "PersonalItem",
+    "PersonalItemKind",
     "Workspace",
     "WorkspaceMember",
     "WorkspaceRole",

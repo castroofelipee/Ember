@@ -10,6 +10,7 @@ from ember.routers.invites import router as invites_router
 from ember.routers.knowledge import router as knowledge_router
 from ember.routers.mail import router as mail_router
 from ember.routers.workspaces import router as workspaces_router
+from ember.routers.personal import router as personal_router
 
 banner_config = EnvBannerConfig.from_env("ENVIRONMENT")
 app = FastAPI(title=f"Ember ({env['ENVIRONMENT']})", docs_url=None)
@@ -31,3 +32,4 @@ app.include_router(invites_router)
 app.include_router(knowledge_router)
 app.include_router(mail_router)
 app.include_router(workspaces_router)
+app.include_router(personal_router)
