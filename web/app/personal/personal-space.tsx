@@ -141,7 +141,7 @@ export function PersonalSpace() {
   return <div className="personal-shell">
     {workspaceId && <AppHeader workspaceId={workspaceId} />}
     <main className="personal-page">
-      <header className="personal-hero"><span>YOUR PRIVATE SPACE</span><h1>{tab === "vision" ? "Vision board" : tab === "habit" ? "Habits" : "Personal Space"}</h1><p>{tab === "vision" ? "A quiet place for the images that keep your direction clear." : tab === "habit" ? "The daily actions that compound into the life you want." : "Build the life you want, one small action at a time."}</p></header>
+      <header className="personal-hero"><span>YOUR PRIVATE SPACE</span></header>
       <nav className="personal-tabs">{([ ["vision", ImageIcon, "Vision board"], ["reading", BookOpen, "Readings"], ["habit", Check, "Habits"] ] as const).map(([key, Icon, label]) => <button className={tab === key ? "active" : ""} key={key} onClick={() => setTab(key)}><Icon size={17}/>{label}</button>)}</nav>
 
       {tab === "vision" ? <>
