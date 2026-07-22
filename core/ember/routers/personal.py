@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 import cloudinary
@@ -108,6 +109,83 @@ async def upload_vision_image(
             "public_id": result["public_id"],
             "width": result.get("width"),
             "height": result.get("height"),
+        },
+    )
+    db.add(item)
+    await db.flush()
+    await db.refresh(item)
+    return item
+
+
+@router.post("/readings", status_code=status.HTTP_201_CREATED)
+async def create_reading(
+    title: str = Form(..., min_length=1, max_length=240),
+    author: str = Form(..., min_length=1, max_length=240),
+    genre: str = Form(default="", max_length=120),
+    shelf: str = Form(default="reading"),
+    started_at: date | None = Form(default=None),
+    finished_at: date | None = Form(default=None),
+    pages_read: int = Form(default=0, ge=0),
+    total_pages: int = Form(default=0, ge=0),
+    rating: int = Form(default=0, ge=0, le=5),
+    cover: UploadFile | None = File(default=None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> PersonalItemResponse:
+    if shelf not in {"reading", "finished", "want_to_read"}:
+        raise HTTPException(status_code=422, detail="Invalid reading shelf.")
+    if pages_read > total_pages and total_pages > 0:
+        raise HTTPException(status_code=422, detail="Pages read cannot exceed total pages.")
+    if total_pages == 0 and pages_read > 0:
+        raise HTTPException(status_code=422, detail="Add total pages before recording progress.")
+    if finished_at is not None and started_at is not None and finished_at < started_at:
+        raise HTTPException(status_code=422, detail="Finish date cannot be before start date.")
+
+    cover_url = None
+    public_id = None
+    if cover is not None:
+        if not cover.content_type or not cover.content_type.startswith("image/"):
+            raise HTTPException(status_code=415, detail="The book cover must be an image.")
+        contents = await cover.read(MAX_IMAGE_BYTES + 1)
+        if len(contents) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="Book cover must be 10 MB or smaller.")
+        if not env["CLOUDINARY_URL"]:
+            raise HTTPException(status_code=503, detail="Image uploads are not configured.")
+        configure_cloudinary()
+        result = await run_in_threadpool(
+            cloudinary.uploader.upload,
+            contents,
+            folder=f"ember/personal/{user.id}/readings",
+            resource_type="image",
+        )
+        public_id = result["public_id"]
+        cover_url, _ = cloudinary_url(public_id, fetch_format="auto", quality="auto", secure=True)
+
+    completed = (
+        shelf == "finished"
+        or finished_at is not None
+        or (total_pages > 0 and pages_read == total_pages)
+    )
+    reading_status = (
+        "want_to_read" if shelf == "want_to_read" else ("finished" if completed else "reading")
+    )
+    item = PersonalItem(
+        user_id=user.id,
+        kind=PersonalItemKind.READING,
+        title=title.strip(),
+        data={
+            "author": author.strip(),
+            "genre": genre.strip(),
+            "started_at": started_at.isoformat() if started_at else None,
+            "finished_at": (finished_at or (date.today() if completed else None)).isoformat()
+            if (finished_at or completed)
+            else None,
+            "pages_read": pages_read,
+            "total_pages": total_pages,
+            "rating": rating,
+            "status": reading_status,
+            "cover_url": cover_url,
+            "public_id": public_id,
         },
     )
     db.add(item)

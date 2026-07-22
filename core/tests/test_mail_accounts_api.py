@@ -611,7 +611,7 @@ async def test_send_message_provider_rejection_returns_502(client: AsyncClient) 
     )
 
     assert response.status_code == 502
-    assert response.json()["detail"] == "Mail server rejected the send request."
+    assert response.json()["detail"] == "Outbound mail provider rejected the send request."
 
 
 # --- inbox --------------------------------------------------------------

@@ -42,6 +42,33 @@ export type EventItem = {
   recurrence: RecurrenceRule | null;
 };
 
+export type PersonalItem = {
+  id: string;
+  kind: "reading" | "habit" | "vision";
+  title: string;
+  data: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Habit schedule. "daily" = every day; number[] = weekdays 0=Mon..6=Sun,
+ * matching RecurrenceRule.by_weekday. Legacy habits without a schedule are daily. */
+export type HabitSchedule = "daily" | number[];
+
+/** Shape stored in a habit PersonalItem's `data` JSONB. All fields except
+ * `dates` are optional so pre-existing habits keep working. */
+export type HabitData = {
+  /** ISO YYYY-MM-DD completion dates. */
+  dates: string[];
+  schedule?: HabitSchedule;
+  /** Per-habit accent hex; defaults to the violet system accent. */
+  color?: string;
+  /** Optional emoji glyph. */
+  icon?: string;
+  /** Optional motivation note. */
+  description?: string;
+};
+
 export type EntityType =
   | "task"
   | "bug"

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarDays, Columns3, Grid3X3, LayoutGrid, Mail, Menu, Settings } from "lucide-react";
+import { CalendarDays, Columns3, Grid3X3, LayoutGrid, Mail, Menu, Settings, Sparkles } from "lucide-react";
 
 type AppHeaderProps = {
   workspaceId: string;
@@ -37,6 +37,7 @@ export function AppHeader({ workspaceId, sidebarOpen, onToggleSidebar }: AppHead
   }, [launcherOpen]);
 
   const apps = [
+    { label: "Personal", icon: Sparkles, href: "/personal", active: pathname === "/personal" },
     { label: "Workspaces", icon: LayoutGrid, href: "/calendars", active: pathname === "/calendars" },
     {
       label: "Calendar",
