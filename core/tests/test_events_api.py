@@ -660,3 +660,207 @@ async def test_bulk_delete_recurring_event_truncates_future_occurrences(
         datetime.fromisoformat("2026-07-01T09:00:00+00:00"),
         datetime.fromisoformat("2026-07-02T09:00:00+00:00"),
     ]
+
+
+async def test_update_event_sets_color_override(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={"start_at": START, "end_at": END, "color": "#16a34a"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["color"] == "#16a34a"
+
+
+async def test_update_event_clears_color_with_explicit_null(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(color="#16a34a"),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={"start_at": START, "end_at": END, "color": None},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["color"] is None
+
+
+async def test_update_event_without_color_keeps_override(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(color="#16a34a"),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={"start_at": "2026-07-02T11:00:00+00:00", "end_at": "2026-07-02T12:00:00+00:00"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["color"] == "#16a34a"
+
+
+async def test_update_event_rejects_malformed_color(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={"start_at": START, "end_at": END, "color": "green"},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_update_recurring_event_with_scope_all_shifts_whole_series(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "count": 3}),
+    )
+    event_id = created.json()["id"]
+
+    # Retime the second occurrence by +2h and recolor; the whole series follows.
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={
+            "start_at": "2026-07-02T11:00:00+00:00",
+            "end_at": "2026-07-02T12:30:00+00:00",
+            "occurrence_start": "2026-07-02T09:00:00+00:00",
+            "color": "#0891b2",
+            "scope": "all",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == event_id
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-07-01T00:00:00+00:00", "end": "2026-07-05T00:00:00+00:00"},
+    )
+    body = listed.json()
+    assert [datetime.fromisoformat(event["start_at"]) for event in body] == [
+        datetime.fromisoformat("2026-07-01T11:00:00+00:00"),
+        datetime.fromisoformat("2026-07-02T11:00:00+00:00"),
+        datetime.fromisoformat("2026-07-03T11:00:00+00:00"),
+    ]
+    assert {event["color"] for event in body} == {"#0891b2"}
+    assert [datetime.fromisoformat(event["end_at"]) for event in body][0] == (
+        datetime.fromisoformat("2026-07-01T12:30:00+00:00")
+    )
+
+
+async def test_update_recurring_event_this_and_future_splits_series(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "count": 4}),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={
+            "start_at": "2026-07-03T14:00:00+00:00",
+            "end_at": "2026-07-03T15:00:00+00:00",
+            "occurrence_start": "2026-07-03T09:00:00+00:00",
+            "color": "#ea580c",
+            "scope": "this_and_future",
+        },
+    )
+
+    assert response.status_code == 200
+    tail_id = response.json()["id"]
+    assert tail_id != event_id
+    assert response.json()["recurrence"]["freq"] == "DAILY"
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-07-01T00:00:00+00:00", "end": "2026-07-06T00:00:00+00:00"},
+    )
+    body = listed.json()
+    assert [datetime.fromisoformat(event["start_at"]) for event in body] == [
+        datetime.fromisoformat("2026-07-01T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-02T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-03T14:00:00+00:00"),
+        datetime.fromisoformat("2026-07-04T14:00:00+00:00"),
+    ]
+    assert [event["color"] for event in body] == [None, None, "#ea580c", "#ea580c"]
+
+
+async def test_update_recurring_event_this_only_recolors_one_occurrence(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY", "count": 3}),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={
+            "start_at": "2026-07-02T09:00:00+00:00",
+            "end_at": "2026-07-02T10:00:00+00:00",
+            "occurrence_start": "2026-07-02T09:00:00+00:00",
+            "color": "#7c3aed",
+            "scope": "this_only",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["recurrence"] is None
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-07-01T00:00:00+00:00", "end": "2026-07-05T00:00:00+00:00"},
+    )
+    body = listed.json()
+    assert [event["color"] for event in body] == [None, "#7c3aed", None]

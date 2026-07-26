@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from ember.models import Calendar, Event, EventAttendee
-from ember.schemas.events import EventCreateRequest, EventMoveRequest
+from ember.schemas.events import EventCreateRequest, EventUpdateRequest
 
 _FREQ_MAP = {"DAILY": DAILY, "WEEKLY": WEEKLY, "MONTHLY": MONTHLY, "YEARLY": YEARLY}
 # 0=Monday..6=Sunday, matching RecurrenceRule.by_weekday.
@@ -42,6 +42,63 @@ def _count_occurrences_before(event: Event, cutoff: datetime) -> int:
     return sum(1 for _ in rrule(**kwargs))
 
 
+def _detach_occurrence(master: Event, occurrence_start: datetime) -> None:
+    """Exclude one instance from the series, so an edited or moved copy of it
+    can live on its own row without the master expanding over it."""
+    exdates = list(master.recurrence_exdates or [])
+    if occurrence_start not in exdates:
+        exdates.append(occurrence_start)
+        exdates.sort()
+    master.recurrence_exdates = exdates
+
+
+def _truncate_series_before(master: Event, occurrence_start: datetime) -> int | None:
+    """End the series just before `occurrence_start`. Returns how many
+    occurrences the cut-off tail would have held when the series was
+    count-bounded, or None when it was open-ended or date-bounded."""
+    if master.recurrence_count is not None:
+        consumed = _count_occurrences_before(master, occurrence_start)
+        remaining = master.recurrence_count - consumed
+        master.recurrence_count = consumed
+        return max(remaining, 1)
+
+    new_until = occurrence_start - timedelta(microseconds=1)
+    if master.recurrence_until is None or new_until < master.recurrence_until:
+        master.recurrence_until = new_until
+    return None
+
+
+def _clone_event(
+    source: Event,
+    *,
+    start_at: datetime,
+    end_at: datetime,
+    color: str | None,
+    with_recurrence: bool = False,
+    count: int | None = None,
+    exdates: list[datetime] | None = None,
+) -> Event:
+    """A new row carrying `source`'s content at a new time — the detached
+    occurrence, or the head of a split series when `with_recurrence`."""
+    return Event(
+        calendar_id=source.calendar_id,
+        title=source.title,
+        description=source.description,
+        location=source.location,
+        start_at=start_at,
+        end_at=end_at,
+        all_day=source.all_day,
+        color=color,
+        attendees=[EventAttendee(email=attendee.email) for attendee in source.attendees],
+        recurrence_freq=source.recurrence_freq if with_recurrence else None,
+        recurrence_interval=source.recurrence_interval if with_recurrence else 1,
+        recurrence_by_weekday=source.recurrence_by_weekday if with_recurrence else None,
+        recurrence_count=count if with_recurrence else None,
+        recurrence_until=source.recurrence_until if with_recurrence else None,
+        recurrence_exdates=exdates if with_recurrence else None,
+    )
+
+
 async def bulk_delete_recurring_event(
     session: AsyncSession,
     master_event_id: uuid.UUID,
@@ -63,11 +120,7 @@ async def bulk_delete_recurring_event(
         return
 
     if mode == DeleteMode.THIS_ONLY:
-        exdates = list(master.recurrence_exdates or [])
-        if occurrence_start not in exdates:
-            exdates.append(occurrence_start)
-            exdates.sort()
-        master.recurrence_exdates = exdates
+        _detach_occurrence(master, occurrence_start)
         await session.flush()
         return
 
@@ -76,16 +129,9 @@ async def bulk_delete_recurring_event(
         await session.flush()
         return
 
-    if master.recurrence_count is not None:
-        count = _count_occurrences_before(master, occurrence_start)
-        if count <= 0:
-            await session.delete(master)
-        else:
-            master.recurrence_count = count
-    else:
-        new_until = occurrence_start - timedelta(microseconds=1)
-        if master.recurrence_until is None or new_until < master.recurrence_until:
-            master.recurrence_until = new_until
+    _truncate_series_before(master, occurrence_start)
+    if master.recurrence_count is not None and master.recurrence_count <= 0:
+        await session.delete(master)
 
     await session.flush()
 
@@ -157,34 +203,66 @@ async def delete_event(session: AsyncSession, event: Event) -> None:
     await session.flush()
 
 
-async def move_event(session: AsyncSession, event: Event, data: EventMoveRequest) -> Event:
-    if event.recurrence_freq is not None:
-        occurrence_start = data.occurrence_start or event.start_at
-        exdates = list(event.recurrence_exdates or [])
-        if occurrence_start not in exdates:
-            exdates.append(occurrence_start)
-            exdates.sort()
-        event.recurrence_exdates = exdates
+async def update_event(session: AsyncSession, event: Event, data: EventUpdateRequest) -> Event:
+    """Retime an event and optionally repaint it. For a series, `data.scope`
+    picks how far the edit reaches — drag-and-drop leaves it at "this_only",
+    which detaches the dragged occurrence the way Google Calendar does."""
+    # An omitted color leaves the override untouched; an explicit null clears it.
+    color = data.color if "color" in data.model_fields_set else event.color
 
-        moved = Event(
-            calendar_id=event.calendar_id,
-            title=event.title,
-            description=event.description,
-            location=event.location,
+    if event.recurrence_freq is None:
+        event.start_at = data.start_at
+        event.end_at = data.end_at
+        event.color = color
+        await session.flush()
+        return await get_event(session, event.id)
+
+    occurrence_start = data.occurrence_start or event.start_at
+    duration = data.end_at - data.start_at
+    # How far the edited occurrence moved; the same shift applies to every
+    # occurrence the edit reaches, so the rule keeps its place in the pattern.
+    delta = data.start_at - occurrence_start
+
+    if data.scope == "all" or (
+        data.scope == "this_and_future" and occurrence_start <= event.start_at
+    ):
+        event.start_at = event.start_at + delta
+        event.end_at = event.start_at + duration
+        if event.recurrence_exdates:
+            event.recurrence_exdates = [date + delta for date in event.recurrence_exdates]
+        event.color = color
+        await session.flush()
+        return await get_event(session, event.id)
+
+    if data.scope == "this_and_future":
+        # Split: the master keeps the past, a new series carries this occurrence
+        # onward. Skipped dates from here on move with it.
+        carried = [
+            date + delta
+            for date in (event.recurrence_exdates or [])
+            if date >= occurrence_start
+        ]
+        remaining = _truncate_series_before(event, occurrence_start)
+        tail = _clone_event(
+            event,
             start_at=data.start_at,
             end_at=data.end_at,
-            all_day=event.all_day,
-            color=event.color,
-            attendees=[EventAttendee(email=attendee.email) for attendee in event.attendees],
+            color=color,
+            with_recurrence=True,
+            count=remaining,
+            exdates=carried or None,
         )
-        session.add(moved)
+        session.add(tail)
         await session.flush()
-        return await get_event(session, moved.id)
+        return await get_event(session, tail.id)
 
-    event.start_at = data.start_at
-    event.end_at = data.end_at
+    _detach_occurrence(event, occurrence_start)
+    detached = _clone_event(
+        event, start_at=data.start_at, end_at=data.end_at, color=color
+    )
+    session.add(detached)
     await session.flush()
-    return await get_event(session, event.id)
+    return await get_event(session, detached.id)
 
 
 def _expand_occurrences(

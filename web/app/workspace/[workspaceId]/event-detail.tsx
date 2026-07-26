@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState } from "react";
-import { AlignLeft, CalendarDays, MapPin, Repeat, Trash2, Users, X } from "lucide-react";
+import { AlignLeft, CalendarDays, MapPin, Pencil, Repeat, Trash2, Users, X } from "lucide-react";
 
 import type { RecurrenceRule, TimeFormat } from "@/lib/types";
 
@@ -12,6 +12,7 @@ type EventDetailProps = {
   anchor: DOMRect;
   timeFormat: TimeFormat;
   onClose: () => void;
+  onEdit: () => void;
   onDelete: () => void;
   deleting: boolean;
 };
@@ -96,6 +97,7 @@ export function EventDetail({
   anchor,
   timeFormat,
   onClose,
+  onEdit,
   onDelete,
   deleting,
 }: EventDetailProps) {
@@ -136,6 +138,14 @@ export function EventDetail({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="event-detail-actions">
+          <button
+            type="button"
+            className="event-detail-icon"
+            aria-label="Edit event"
+            onClick={onEdit}
+          >
+            <Pencil size={16} />
+          </button>
           <button
             type="button"
             className="event-detail-icon"

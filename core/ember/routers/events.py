@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ember.db import get_db
 from ember.dependencies import get_current_user
 from ember.models import User
-from ember.schemas.events import EventCreateRequest, EventMoveRequest, EventResponse
+from ember.schemas.events import EventCreateRequest, EventResponse, EventUpdateRequest
 from ember.services.calendars import get_calendar
 from ember.services.events import (
     bulk_delete_recurring_event,
@@ -15,7 +15,7 @@ from ember.services.events import (
     delete_event,
     get_event_or_none,
     list_events_in_range,
-    move_event,
+    update_event,
 )
 from ember.services.events import DeleteMode
 from ember.services.workspaces import NotAWorkspaceMemberError, assert_workspace_member
@@ -80,9 +80,9 @@ async def delete_event_route(
 
 
 @router.patch("/events/{event_id}")
-async def move_event_route(
+async def update_event_route(
     event_id: uuid.UUID,
-    data: EventMoveRequest,
+    data: EventUpdateRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> EventResponse:
@@ -94,8 +94,8 @@ async def move_event_route(
         raise _NOT_FOUND
     await _require_membership(db, calendar.workspace_id, current_user.id)
 
-    moved = await move_event(db, event, data)
-    return EventResponse.model_validate(moved)
+    updated = await update_event(db, event, data)
+    return EventResponse.model_validate(updated)
 
 
 @router.delete("/events/{event_id}/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)

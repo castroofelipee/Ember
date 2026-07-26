@@ -15,6 +15,8 @@ const HOUR_PX = 56;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
 const DRAG_SNAP_MINUTES = 5;
+/** Horizontal indent per level of an overlapping event stack. */
+const STACK_OFFSET_PX = 14;
 const DRAG_CLICK_THRESHOLD_PX = 4;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // `getDay()` returns 0 (Sun)..6 (Sat), matching WEEKDAYS index order.
@@ -45,7 +47,10 @@ export type WeekEvent = {
   attendees?: string[];
   start: Date;
   end: Date;
+  /** Resolved paint color: the event's own override, else its calendar's. */
   color: string;
+  /** The event's own color, or null when it inherits the calendar's. */
+  colorOverride?: string | null;
   allDay?: boolean;
   /** Set on every occurrence of a recurring series; identical across occurrences. */
   recurrence?: RecurrenceRule | null;
@@ -107,6 +112,39 @@ function hexToRgba(hex: string, alpha: number): string {
   const g = parseInt(value.slice(2, 4), 16);
   const b = parseInt(value.slice(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+type PositionedEvent = {
+  event: WeekEvent;
+  key: string;
+  displayStart: Date;
+  displayEnd: Date;
+  /** Depth in an overlapping stack; 0 when nothing sits underneath. */
+  stackIndex: number;
+};
+
+/** Order a day's blocks by start time and record how many earlier blocks each
+ * one covers, so the ones on top can be offset and painted opaque instead of
+ * blending into a washed-out pile. */
+function layoutDayEvents(entries: Omit<PositionedEvent, "stackIndex">[]): PositionedEvent[] {
+  const sorted = [...entries].sort(
+    (a, b) =>
+      a.displayStart.getTime() - b.displayStart.getTime() ||
+      b.displayEnd.getTime() - a.displayEnd.getTime(),
+  );
+  const placed: PositionedEvent[] = [];
+  for (const entry of sorted) {
+    const covered = placed.filter(
+      (other) =>
+        other.displayStart.getTime() < entry.displayEnd.getTime() &&
+        entry.displayStart.getTime() < other.displayEnd.getTime(),
+    );
+    const stackIndex = covered.length
+      ? Math.max(...covered.map((other) => other.stackIndex)) + 1
+      : 0;
+    placed.push({ ...entry, stackIndex });
+  }
+  return placed;
 }
 
 const WEEKDAY_LONG = [
@@ -528,16 +566,23 @@ export function WeekView({
                   </div>
                 )}
 
-                {dayEvents.map((event) => {
-                  const key = eventKey(event);
-                  const preview =
-                    dragging?.eventKey === key
-                      ? { start: dragging.previewStart, end: dragging.previewEnd }
-                      : resizing?.eventKey === key
-                        ? { start: resizing.previewStart, end: resizing.previewEnd }
-                      : null;
-                  const displayStart = preview?.start ?? event.start;
-                  const displayEnd = preview?.end ?? event.end;
+                {layoutDayEvents(
+                  dayEvents.map((event) => {
+                    const key = eventKey(event);
+                    const preview =
+                      dragging?.eventKey === key
+                        ? { start: dragging.previewStart, end: dragging.previewEnd }
+                        : resizing?.eventKey === key
+                          ? { start: resizing.previewStart, end: resizing.previewEnd }
+                          : null;
+                    return {
+                      event,
+                      key,
+                      displayStart: preview?.start ?? event.start,
+                      displayEnd: preview?.end ?? event.end,
+                    };
+                  }),
+                ).map(({ event, key, displayStart, displayEnd, stackIndex }) => {
                   const top =
                     (displayStart.getHours() * 60 + displayStart.getMinutes()) / 60 * HOUR_PX;
                   const height = Math.max(
@@ -545,18 +590,25 @@ export function WeekView({
                     18,
                   );
                   const draggable = !event.allDay && Boolean(onEventMove);
+                  const active =
+                    dragging?.eventKey === key || resizing?.eventKey === key;
                   return (
                     <div
                       className={`week-event${dragging?.eventKey === key ? " week-event--dragging" : ""}${
                         resizing?.eventKey === key ? " week-event--resizing" : ""
                       }${
                         draggable ? " week-event--draggable" : ""
-                      }`}
+                      }${stackIndex > 0 ? " week-event--stacked" : ""}`}
                       key={key}
                       style={{
                         top,
                         height,
-                        background: hexToRgba(event.color, 0.24),
+                        left: 2 + stackIndex * STACK_OFFSET_PX,
+                        zIndex: active ? 20 : 1 + stackIndex,
+                        background: hexToRgba(
+                          event.color,
+                          stackIndex > 0 ? Math.min(0.94, 0.78 + stackIndex * 0.06) : 0.24,
+                        ),
                         borderLeftColor: event.color,
                       }}
                       onPointerDown={(e) => {

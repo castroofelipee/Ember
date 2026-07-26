@@ -8,6 +8,8 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 RecurrenceFreq = Literal["DAILY", "WEEKLY", "MONTHLY", "YEARLY"]
+# Mirrors the delete modes: one occurrence, the tail of the series, or all of it.
+EventUpdateScope = Literal["this_only", "this_and_future", "all"]
 
 
 class RecurrenceRule(BaseModel):
@@ -95,13 +97,29 @@ class EventCreateRequest(BaseModel):
         return self
 
 
-class EventMoveRequest(BaseModel):
+class EventUpdateRequest(BaseModel):
+    """Times (and optionally the color override) of a single event or of one
+    occurrence of a series. `scope` says how far the edit reaches; it is
+    ignored for one-off events."""
+
     start_at: datetime
     end_at: datetime
+    # Omitted entirely means "leave the color alone"; explicit null clears the
+    # override so the event falls back to its calendar's color. Tell the two
+    # apart with `"color" in request.model_fields_set`.
+    color: str | None = None
     occurrence_start: datetime | None = None
+    scope: EventUpdateScope = "this_only"
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, value: str | None) -> str | None:
+        if value is not None and not _HEX_COLOR_RE.match(value):
+            raise ValueError("color must be a hex string like #4f46e5")
+        return value
 
     @model_validator(mode="after")
-    def validate_time_range(self) -> "EventMoveRequest":
+    def validate_time_range(self) -> "EventUpdateRequest":
         if self.end_at <= self.start_at:
             raise ValueError("end_at must be after start_at")
         return self

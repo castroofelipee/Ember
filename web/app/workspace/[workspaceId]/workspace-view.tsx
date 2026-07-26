@@ -15,6 +15,7 @@ import {
 import { EventDetail } from "./event-detail";
 import { EventDeleteDialog } from "./event-delete-dialog";
 import { EventDialog } from "./event-dialog";
+import { EventEditDialog, type EventEdit } from "./event-edit-dialog";
 import { AppHeader } from "./app-header";
 import { Sidebar } from "./sidebar";
 import { CalendarView, WeekView, type WeekEvent } from "./week-view";
@@ -24,6 +25,7 @@ type Status = "loading" | "ready" | "not-found";
 type DialogState = { open: false } | { open: true; initialStart?: Date };
 type SelectedEvent = { event: WeekEvent; anchor: DOMRect };
 type DeleteDialogState = { open: false } | { open: true; event: WeekEvent };
+type EditDialogState = { open: false } | { open: true; event: WeekEvent };
 
 function localDateInTimeZone(value: string, timeZone: string): Date {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -52,7 +54,9 @@ export function WorkspaceView() {
   const [dialog, setDialog] = useState<DialogState>({ open: false });
   const [selected, setSelected] = useState<SelectedEvent | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({ open: false });
+  const [editDialog, setEditDialog] = useState<EditDialogState>({ open: false });
   const [deleting, setDeleting] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // Remember the span currently on screen so we can refetch after creating.
   const rangeRef = useRef<{ start: Date; end: Date } | null>(null);
@@ -83,6 +87,7 @@ export function WorkspaceView() {
         end,
         allDay: item.all_day,
         color: item.color ?? calendarColors.get(item.calendar_id) ?? DEFAULT_CALENDAR_COLOR,
+        colorOverride: item.color,
         recurrence: item.recurrence,
       };
     },
@@ -162,6 +167,38 @@ export function WorkspaceView() {
         return;
       }
       refetchEvents();
+    },
+    [accessToken, refetchEvents],
+  );
+
+  const saveEventEdit = useCallback(
+    async (event: WeekEvent, edit: EventEdit) => {
+      setSavingEdit(true);
+      try {
+        const response = await fetch(`/api/events/${event.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            start_at: edit.start.toISOString(),
+            end_at: edit.end.toISOString(),
+            color: edit.color,
+            // The clicked instance, so the backend knows which occurrence of a
+            // series the scope is measured from.
+            occurrence_start: event.start.toISOString(),
+            scope: edit.scope,
+          }),
+        });
+        if (response.ok) {
+          setEditDialog({ open: false });
+          setSelected(null);
+          refetchEvents();
+        }
+      } finally {
+        setSavingEdit(false);
+      }
     },
     [accessToken, refetchEvents],
   );
@@ -337,7 +374,17 @@ export function WorkspaceView() {
           timeFormat={preferences.time_format}
           deleting={deleting}
           onClose={() => setSelected(null)}
+          onEdit={() => setEditDialog({ open: true, event: selected.event })}
           onDelete={openDeleteDialog}
+        />
+      )}
+
+      {editDialog.open && (
+        <EventEditDialog
+          event={editDialog.event}
+          saving={savingEdit}
+          onClose={() => setEditDialog({ open: false })}
+          onSave={(edit) => void saveEventEdit(editDialog.event, edit)}
         />
       )}
 
