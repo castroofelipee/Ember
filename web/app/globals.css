@@ -4090,8 +4090,11 @@ button.mini-calendar-day--selected:hover {
 .current-reading-percentage small { color: #858585; }
 .current-reading-progress { overflow: hidden; height: .55rem; margin-top: .35rem; border-radius: 999px; background: #302b35; }
 .current-reading-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #75529d, #b58adf); box-shadow: 0 0 16px rgba(181,138,223,.5); transition: width .65s cubic-bezier(.22,1,.36,1); animation: current-reading-glow 2s ease-in-out infinite alternate; }
-.current-reading-copy > button { display: inline-flex; align-self: flex-start; align-items: center; gap: .4rem; margin-top: 1rem; border: 1px solid #57446e; border-radius: .6rem; padding: .55rem .75rem; background: #291d38; color: #e7d8f5; cursor: pointer; }
-.current-reading-copy > button:hover { background: #352449; }
+.current-reading-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.current-reading-actions button { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid #57446e; border-radius: .6rem; padding: .55rem .75rem; background: #291d38; color: #e7d8f5; cursor: pointer; }
+.current-reading-actions button:hover { background: #352449; }
+.current-reading-actions button.current-reading-edit { border-color: #3a3a3a; background: #232323; color: #cfcfcf; }
+.current-reading-actions button.current-reading-edit:hover { background: #2c2c2c; }
 @keyframes current-reading-glow { from { filter: brightness(.92); } to { filter: brightness(1.2); } }
 .reading-library { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: .85rem; }
 .reading-book { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr); gap: .9rem; min-height: 10rem; border: 1px solid #2e2e2e; border-radius: 1rem; padding: .7rem; background: #191919; }
@@ -4163,6 +4166,19 @@ button.mini-calendar-day--selected:hover {
 .reading-shelf-cover img { width: 100%; height: 100%; object-fit: cover; }
 .reading-shelf-book h3 { margin: .65rem 0 .3rem; overflow: hidden; color: #e5e5e5; font-size: .82rem; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
 .reading-shelf-book .reading-stars { margin-top: 0; }
+.reading-shelf-cover { position: relative; }
+/* Edit affordance rides on the cover; visible on hover, and always once the
+   card is keyboard-focused so it stays reachable without a pointer. */
+.reading-shelf-edit { position: absolute; top: .4rem; right: .4rem; display: grid; width: 1.7rem; height: 1.7rem; place-items: center; border: 1px solid #3d3d3d; border-radius: .5rem; background: rgba(24,24,24,.85); color: #ddd; cursor: pointer; opacity: 0; transition: opacity .15s ease; }
+.reading-shelf-book:hover .reading-shelf-edit, .reading-shelf-edit:focus-visible { opacity: 1; }
+.reading-shelf-edit:hover { background: #2c2c2c; }
+.reading-stars--editable { gap: .1rem; }
+.reading-stars--editable button { border: 0; padding: 0; background: transparent; color: inherit; cursor: pointer; line-height: 0; }
+.reading-stars--editable button:hover { color: #f2d18a; transform: translateY(-1px); }
+.reading-cover-remove { display: inline-flex; align-self: center; align-items: center; gap: .3rem; border: 1px solid #3a3a3a; border-radius: .5rem; padding: .3rem .6rem; background: #202020; color: #b9b9b9; cursor: pointer; font-size: .68rem; }
+.reading-cover-remove:hover { background: #2a2a2a; color: #e5e5e5; }
+.reading-rating-clear { margin-left: .6rem; border: 0; background: transparent; color: #8b8b8b; cursor: pointer; font-size: .68rem; text-decoration: underline; }
+.reading-rating-clear:hover { color: #ddd; }
 @keyframes reading-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @media (max-width: 650px) { .personal-add { grid-template-columns: 1fr; } .personal-tabs { overflow-x: auto; } .vision-board-detail-head { grid-template-columns: 1fr auto; } .vision-board-detail-head > div:nth-child(2) { grid-column: 1 / -1; grid-row: 2; } .reading-kpis { grid-template-columns: 1fr; } .reading-form-grid { grid-template-columns: 1fr; } .reading-form-grid label { grid-column: 1 / -1; } .current-reading { grid-template-columns: 6.5rem minmax(0, 1fr); } .current-reading-cover { min-height: 10rem; } }
 
