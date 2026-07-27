@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 import type {
   MailAccount,
   MailAccountStatus,
@@ -54,7 +54,7 @@ function parseRecipients(value: string): string[] {
 export function MailAccountsView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { status: authStatus, accessToken } = useRequireAuth();
+  const { status: authStatus } = useRequireAuth();
   const [status, setStatus] = useState<Status>("loading");
   const [domains, setDomains] = useState<MailDomain[]>([]);
   const [accounts, setAccounts] = useState<MailAccount[]>([]);
@@ -93,12 +93,8 @@ export function MailAccountsView() {
     let cancelled = false;
 
     Promise.all([
-      fetch(accountsUrl(workspaceId), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }),
-      fetch(domainsUrl(workspaceId), {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }),
+      apiFetch(accountsUrl(workspaceId)),
+      apiFetch(domainsUrl(workspaceId)),
     ]).then(async ([accountsRes, domainsRes]) => {
       if (cancelled) return;
       if (accountsRes.status === 404) {
@@ -117,7 +113,7 @@ export function MailAccountsView() {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, accessToken, workspaceId]);
+  }, [authStatus, workspaceId]);
 
   const domainName = (domainId: string) =>
     domains.find((d) => d.id === domainId)?.domain ?? domainId;
@@ -150,9 +146,8 @@ export function MailAccountsView() {
     setCreating(true);
     setCreateError(null);
 
-    const response = await fetch(accountsUrl(workspaceId), {
+    const response = await apiFetch(accountsUrl(workspaceId), {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({
         domain_id: newDomainId,
         email: newEmail.trim(),
@@ -214,9 +209,8 @@ export function MailAccountsView() {
     setSavingId(accountId);
     setEditError(null);
 
-    const response = await fetch(accountsUrl(workspaceId, accountId), {
+    const response = await apiFetch(accountsUrl(workspaceId, accountId), {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ display_name: editDisplayName.trim() || null }),
     });
 
@@ -237,9 +231,8 @@ export function MailAccountsView() {
     setRowError(null);
     const nextStatus: MailAccountStatus = account.status === "active" ? "suspended" : "active";
 
-    const response = await fetch(accountsUrl(workspaceId, account.id), {
+    const response = await apiFetch(accountsUrl(workspaceId, account.id), {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ status: nextStatus }),
     });
 
@@ -258,9 +251,8 @@ export function MailAccountsView() {
     setDeletingId(accountId);
     setRowError(null);
 
-    const response = await fetch(accountsUrl(workspaceId, accountId), {
+    const response = await apiFetch(accountsUrl(workspaceId, accountId), {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     if (response.status === 502) {
@@ -291,9 +283,8 @@ export function MailAccountsView() {
     setSendError(null);
     setSendResult(null);
 
-    const response = await fetch(sendMessageUrl(workspaceId, selectedComposeAccountId), {
+    const response = await apiFetch(sendMessageUrl(workspaceId, selectedComposeAccountId), {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({
         to,
         cc: parseRecipients(composeCc),

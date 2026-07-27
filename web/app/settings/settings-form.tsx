@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 import {
   DEFAULT_HOLIDAY_SETTINGS,
   DEFAULT_PREFERENCES,
@@ -102,7 +102,7 @@ function hourLabel(hour: number, format: TimeFormat): string {
 
 export function SettingsForm() {
   const router = useRouter();
-  const { status: authStatus, accessToken } = useRequireAuth();
+  const { status: authStatus } = useRequireAuth();
   const [status, setStatus] = useState<Status>("loading");
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -117,9 +117,7 @@ export function SettingsForm() {
     if (authStatus !== "ready") return;
     let cancelled = false;
 
-    fetch("/api/workspaces", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).then(async (response) => {
+    apiFetch("/api/workspaces").then(async (response) => {
       if (cancelled || !response.ok) return;
       const body: Workspace[] = await response.json();
       setWorkspaces(body);
@@ -130,19 +128,15 @@ export function SettingsForm() {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, accessToken]);
+  }, [authStatus]);
 
   useEffect(() => {
     if (authStatus !== "ready" || !workspaceId) return;
     let cancelled = false;
 
     Promise.all([
-      fetch(`/api/workspaces/${workspaceId}/preferences`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }),
-      fetch(`/api/workspaces/${workspaceId}/holiday-settings`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }),
+      apiFetch(`/api/workspaces/${workspaceId}/preferences`),
+      apiFetch(`/api/workspaces/${workspaceId}/holiday-settings`),
     ]).then(async ([preferencesResponse, holidayResponse]) => {
       if (cancelled) return;
       if (preferencesResponse.ok) setPrefs(await preferencesResponse.json());
@@ -154,7 +148,7 @@ export function SettingsForm() {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, accessToken, workspaceId]);
+  }, [authStatus, workspaceId]);
 
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setPrefs((prev) => ({ ...prev, [key]: value }));
@@ -177,23 +171,15 @@ export function SettingsForm() {
     setErrorMessage(null);
 
     try {
-      const response = await fetch(`/api/workspaces/${workspaceId}/preferences`, {
+      const response = await apiFetch(`/api/workspaces/${workspaceId}/preferences`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
         body: JSON.stringify(prefs),
       });
 
       if (!response.ok) throw new Error("Could not save your settings. Please try again.");
       setPrefs(await response.json());
-      const holidayResponse = await fetch(`/api/workspaces/${workspaceId}/holiday-settings`, {
+      const holidayResponse = await apiFetch(`/api/workspaces/${workspaceId}/holiday-settings`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
         body: JSON.stringify(holidays),
       });
       if (!holidayResponse.ok) {

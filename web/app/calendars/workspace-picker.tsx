@@ -5,14 +5,13 @@ import { useRouter } from "next/navigation";
 import { Building2, Plus } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { apiFetch } from "@/lib/auth-client";
 import type { Workspace } from "@/lib/types";
 
 export function WorkspacePicker({
-  accessToken,
   workspaces,
   onCreated,
 }: {
-  accessToken: string;
   workspaces: Workspace[];
   onCreated: (workspace: Workspace) => void;
 }) {
@@ -27,9 +26,8 @@ export function WorkspacePicker({
     setPending(true);
     setErrorMessage(null);
 
-    const response = await fetch("/api/workspaces", {
+    const response = await apiFetch("/api/workspaces", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ name }),
     });
 

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, Copy, UserPlus } from "lucide-react";
 
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 
 type Invite = { link: string; expiresAt: string };
 
@@ -21,7 +21,7 @@ function formatExpiry(iso: string): string {
  * returned once at creation, so the link is shown until a new one is made.
  */
 export function InviteMembers() {
-  const { status: authStatus, accessToken } = useRequireAuth();
+  const { status: authStatus } = useRequireAuth();
   const [invite, setInvite] = useState<Invite | null>(null);
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -33,10 +33,7 @@ export function InviteMembers() {
     setError(null);
     setCopied(false);
     try {
-      const response = await fetch("/api/invites", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const response = await apiFetch("/api/invites", { method: "POST" });
       if (response.status === 201) {
         const body = await response.json();
         const link = `${window.location.origin}/signup?invite=${encodeURIComponent(body.code)}`;

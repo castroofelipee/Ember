@@ -3,6 +3,8 @@
 import { useEffect, useState, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { adoptAccessToken } from "@/lib/auth-client";
+
 type FieldErrors = Record<string, string>;
 
 function extractFieldErrors(detail: unknown): FieldErrors {
@@ -59,6 +61,8 @@ export function SignupForm() {
       });
 
       if (response.status === 201) {
+        const body = await response.json();
+        adoptAccessToken(body.access_token as string);
         form.reset();
         router.push("/onboarding/preferences");
         return;

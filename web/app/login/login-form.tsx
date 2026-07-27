@@ -3,6 +3,8 @@
 import { useState, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { adoptAccessToken } from "@/lib/auth-client";
+
 export function LoginForm() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -27,6 +29,8 @@ export function LoginForm() {
       });
 
       if (response.status === 200) {
+        const body = await response.json();
+        adoptAccessToken(body.access_token as string);
         router.push("/calendars");
         return;
       }

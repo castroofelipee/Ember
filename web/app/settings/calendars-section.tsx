@@ -11,13 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 import type { Calendar, Workspace } from "@/lib/types";
 
 const CALENDAR_COLORS = ["#4f46e5", "#0ea5e9", "#16a34a", "#f59e0b", "#e11d48"];
 
 export function CalendarsSection() {
-  const { status: authStatus, accessToken } = useRequireAuth();
+  const { status: authStatus } = useRequireAuth();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
@@ -29,9 +29,7 @@ export function CalendarsSection() {
     if (authStatus !== "ready") return;
     let cancelled = false;
 
-    fetch("/api/workspaces", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).then(async (response) => {
+    apiFetch("/api/workspaces").then(async (response) => {
       if (cancelled || !response.ok) return;
       const body: Workspace[] = await response.json();
       setWorkspaces(body);
@@ -41,15 +39,13 @@ export function CalendarsSection() {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, accessToken]);
+  }, [authStatus]);
 
   useEffect(() => {
     if (authStatus !== "ready" || !workspaceId) return;
     let cancelled = false;
 
-    fetch(`/api/workspaces/${workspaceId}/calendars`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).then(async (response) => {
+    apiFetch(`/api/workspaces/${workspaceId}/calendars`).then(async (response) => {
       if (cancelled || !response.ok) return;
       setCalendars(await response.json());
     });
@@ -57,7 +53,7 @@ export function CalendarsSection() {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, accessToken, workspaceId]);
+  }, [authStatus, workspaceId]);
 
   async function handleAddCalendar(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -66,9 +62,8 @@ export function CalendarsSection() {
     setErrorMessage(null);
 
     const color = CALENDAR_COLORS[calendars.length % CALENDAR_COLORS.length];
-    const response = await fetch(`/api/workspaces/${workspaceId}/calendars`, {
+    const response = await apiFetch(`/api/workspaces/${workspaceId}/calendars`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ name: calendarName, color }),
     });
 

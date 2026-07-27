@@ -24,7 +24,7 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 import type {
   MailFolder,
   MailMarkReadResult,
@@ -200,7 +200,7 @@ function MailMessageCard({
 export function MailView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { status: authStatus, accessToken } = useRequireAuth();
+  const { status: authStatus } = useRequireAuth();
   const [status, setStatus] = useState<Status>("loading");
   const [folder, setFolder] = useState<MailFolder>("inbox");
   const [threads, setThreads] = useState<MailThreadPreview[]>([]);
@@ -219,9 +219,7 @@ export function MailView() {
     if (authStatus !== "ready") return;
     setRefreshing(true);
     setError(null);
-    const response = await fetch(threadsUrl(workspaceId, nextFolder, nextPage), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const response = await apiFetch(threadsUrl(workspaceId, nextFolder, nextPage));
     if (response.status === 404) {
       setStatus("not-found");
       setRefreshing(false);
@@ -265,12 +263,8 @@ export function MailView() {
           : item,
       ),
     );
-    await fetch(messageUrl(workspaceId, threadToToggle.account_id, threadToToggle.latest_message.id), {
+    await apiFetch(messageUrl(workspaceId, threadToToggle.account_id, threadToToggle.latest_message.id), {
       method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
       body: JSON.stringify({ flagged }),
     });
   }
@@ -279,10 +273,7 @@ export function MailView() {
     if (authStatus !== "ready" || markingRead) return;
     setMarkingRead(true);
     setError(null);
-    const response = await fetch(markReadUrl(workspaceId, folder), {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
+    const response = await apiFetch(markReadUrl(workspaceId, folder), { method: "POST" });
     if (!response.ok) {
       const detail = await response
         .json()
@@ -306,7 +297,7 @@ export function MailView() {
     if (authStatus !== "ready") return;
     void loadThreads(folder, page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authStatus, accessToken, workspaceId, folder, page]);
+  }, [authStatus, workspaceId, folder, page]);
 
   useEffect(() => {
     if (authStatus !== "ready" || !selected) {
@@ -315,9 +306,7 @@ export function MailView() {
     }
     let cancelled = false;
     setLoadingThread(true);
-    fetch(threadUrl(workspaceId, selected.account_id, selected.thread_id), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).then(async (response) => {
+    apiFetch(threadUrl(workspaceId, selected.account_id, selected.thread_id)).then(async (response) => {
       if (cancelled) return;
       if (response.ok) {
         const loaded: MailThread = await response.json();
@@ -325,12 +314,8 @@ export function MailView() {
         const unreadMessages = loaded.messages.filter((message) => !message.keywords.includes("$seen"));
         await Promise.all(
           unreadMessages.map((message) =>
-            fetch(messageUrl(workspaceId, loaded.account_id, message.id), {
+            apiFetch(messageUrl(workspaceId, loaded.account_id, message.id), {
               method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${accessToken}`,
-              },
               body: JSON.stringify({ seen: true }),
             }),
           ),
@@ -348,7 +333,7 @@ export function MailView() {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, accessToken, workspaceId, selected]);
+  }, [authStatus, workspaceId, selected]);
 
   const filteredThreads = useMemo(() => {
     const normalized = query.trim().toLowerCase();

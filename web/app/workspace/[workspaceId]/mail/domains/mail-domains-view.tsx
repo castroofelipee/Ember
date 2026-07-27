@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 import type { MailDomain, MailDomainStatus } from "@/lib/types";
 
 import { MailNav } from "../mail-nav";
@@ -33,7 +33,7 @@ function domainsUrl(workspaceId: string, domainId?: string): string {
 export function MailDomainsView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { status: authStatus, accessToken } = useRequireAuth();
+  const { status: authStatus } = useRequireAuth();
   const [status, setStatus] = useState<Status>("loading");
   const [domains, setDomains] = useState<MailDomain[]>([]);
   const [newDomain, setNewDomain] = useState("");
@@ -51,9 +51,7 @@ export function MailDomainsView() {
     if (authStatus !== "ready") return;
     let cancelled = false;
 
-    fetch(domainsUrl(workspaceId), {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }).then(async (response) => {
+    apiFetch(domainsUrl(workspaceId)).then(async (response) => {
       if (cancelled) return;
       if (response.status === 404) {
         setStatus("not-found");
@@ -68,7 +66,7 @@ export function MailDomainsView() {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, accessToken, workspaceId]);
+  }, [authStatus, workspaceId]);
 
   async function handleCreate(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,9 +74,8 @@ export function MailDomainsView() {
     setCreating(true);
     setCreateError(null);
 
-    const response = await fetch(domainsUrl(workspaceId), {
+    const response = await apiFetch(domainsUrl(workspaceId), {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ domain: newDomain.trim() }),
     });
 
@@ -115,9 +112,8 @@ export function MailDomainsView() {
     setSavingId(domainId);
     setEditError(null);
 
-    const response = await fetch(domainsUrl(workspaceId, domainId), {
+    const response = await apiFetch(domainsUrl(workspaceId, domainId), {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ domain: editDomain.trim(), status: editStatus }),
     });
 
@@ -142,9 +138,8 @@ export function MailDomainsView() {
     setDeletingId(domainId);
     setRowError(null);
 
-    const response = await fetch(domainsUrl(workspaceId, domainId), {
+    const response = await apiFetch(domainsUrl(workspaceId, domainId), {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${accessToken}` },
     });
 
     if (response.status === 409) {
