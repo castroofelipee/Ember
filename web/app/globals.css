@@ -1684,6 +1684,22 @@
   color: #f5f5f5;
 }
 
+/* Collapsed, the sidebar stays in the grid as a narrow rail holding just the
+   toggle — the board keeps its position instead of jumping sideways, and the
+   control that reopens the nav never leaves the page. */
+.knowledge-page--nav-collapsed {
+  grid-template-columns: 3.25rem minmax(0, 1fr);
+}
+
+.knowledge-nav--collapsed {
+  padding: 1rem 0.5rem;
+  align-items: center;
+}
+
+.knowledge-nav--collapsed .knowledge-nav-top {
+  justify-content: center;
+}
+
 .knowledge-page--center {
   display: flex;
   align-items: center;
@@ -1711,6 +1727,11 @@
   display: flex;
   align-items: center;
   gap: 0.7rem;
+}
+
+/* Pushed to the far edge so the collapse control sits where the sidebar ends. */
+.knowledge-nav-toggle {
+  margin-left: auto;
 }
 
 .knowledge-brand {

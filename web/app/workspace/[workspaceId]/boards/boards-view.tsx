@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type DragEvent,
+} from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -19,6 +26,8 @@ import {
   GripVertical,
   Link2,
   Mail,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   RefreshCw,
@@ -102,6 +111,67 @@ async function responseError(response: Response, fallback: string): Promise<stri
     return fallback;
   }
   return fallback;
+}
+
+const SIDEBAR_STORAGE_KEY = "ember:boards:sidebar";
+
+// The sidebar's state doubles as the user's default: whatever it is when they
+// leave is what they get on the next visit. It lives in a module store rather
+// than component state so the very first paint already matches the stored
+// choice — reading localStorage from an effect would flash the wrong layout —
+// and so a change in one tab reaches the others.
+let sidebarOpen = true;
+let sidebarRead = false;
+const sidebarListeners = new Set<() => void>();
+
+/** Storage is unavailable in private-mode edge cases; an open sidebar is the
+ * safe default there, since every control stays reachable. */
+function readStoredSidebar(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_STORAGE_KEY) !== "collapsed";
+  } catch {
+    return true;
+  }
+}
+
+function subscribeSidebar(listener: () => void): () => void {
+  sidebarListeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== SIDEBAR_STORAGE_KEY) return;
+    sidebarOpen = readStoredSidebar();
+    listener();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    sidebarListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+/** Must return a stable value between changes — hence the cached read. */
+function getSidebarSnapshot(): boolean {
+  if (!sidebarRead) {
+    sidebarOpen = readStoredSidebar();
+    sidebarRead = true;
+  }
+  return sidebarOpen;
+}
+
+/** Prerendering has no localStorage, so the server snapshot is the default and
+ * useSyncExternalStore swaps in the stored value right after hydration. */
+function getSidebarServerSnapshot(): boolean {
+  return true;
+}
+
+function setSidebarOpen(open: boolean): void {
+  sidebarOpen = open;
+  sidebarRead = true;
+  try {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, open ? "open" : "collapsed");
+  } catch {
+    // The toggle still works for this session; only the default is not kept.
+  }
+  for (const listener of sidebarListeners) listener();
 }
 
 async function jsonRequest<T>(
@@ -222,6 +292,11 @@ export function BoardsView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const { status: authStatus } = useRequireAuth();
+  const navOpen = useSyncExternalStore(
+    subscribeSidebar,
+    getSidebarSnapshot,
+    getSidebarServerSnapshot,
+  );
   const [mode, setMode] = useState<ViewMode>("board");
   const [boards, setBoards] = useState<Board[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
@@ -818,65 +893,81 @@ export function BoardsView() {
   }
 
   return (
-    <div className="knowledge-page">
-      <aside className="knowledge-nav">
+    <div className={`knowledge-page${navOpen ? "" : " knowledge-page--nav-collapsed"}`}>
+      <aside className={`knowledge-nav${navOpen ? "" : " knowledge-nav--collapsed"}`}>
         <div className="knowledge-nav-top">
+          {navOpen && (
+            <>
+              <button
+                type="button"
+                className="mail-icon-button"
+                aria-label="Back to calendar"
+                onClick={() => router.push(`/workspace/${workspaceId}`)}
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <span className="knowledge-brand">Knowledge</span>
+            </>
+          )}
           <button
             type="button"
-            className="mail-icon-button"
-            aria-label="Back to calendar"
-            onClick={() => router.push(`/workspace/${workspaceId}`)}
+            className="mail-icon-button knowledge-nav-toggle"
+            aria-label={navOpen ? "Collapse sidebar" : "Expand sidebar"}
+            aria-expanded={navOpen}
+            title={navOpen ? "Collapse sidebar" : "Expand sidebar"}
+            onClick={() => setSidebarOpen(!navOpen)}
           >
-            <ArrowLeft size={18} />
-          </button>
-          <span className="knowledge-brand">Knowledge</span>
-        </div>
-
-        <div className="knowledge-tabs">
-          <button
-            type="button"
-            className={mode === "board" ? "knowledge-tab knowledge-tab--active" : "knowledge-tab"}
-            onClick={() => setMode("board")}
-          >
-            <Columns3 size={15} />
-            Boards
-          </button>
-          <button
-            type="button"
-            className="knowledge-tab"
-            onClick={() => setMode("docs")}
-          >
-            <FileText size={15} />
-            Docs
+            {navOpen ? <PanelLeftClose size={18} /> : <PanelLeftOpen size={18} />}
           </button>
         </div>
 
-        <div className="knowledge-create">
-          <input
-            className="event-dialog-input"
-            value={boardTitle}
-            onChange={(event) => setBoardTitle(event.target.value)}
-            placeholder="Board name"
-          />
-          <Button type="button" onClick={createBoard}>
-            <Plus />
-            Board
-          </Button>
-        </div>
+        {navOpen && (
+          <>
+            <div className="knowledge-tabs">
+              <button
+                type="button"
+                className={
+                  mode === "board" ? "knowledge-tab knowledge-tab--active" : "knowledge-tab"
+                }
+                onClick={() => setMode("board")}
+              >
+                <Columns3 size={15} />
+                Boards
+              </button>
+              <button type="button" className="knowledge-tab" onClick={() => setMode("docs")}>
+                <FileText size={15} />
+                Docs
+              </button>
+            </div>
 
-        <div className="knowledge-board-list">
-          {boards.map((board) => (
-            <button
-              type="button"
-              key={board.id}
-              className={`knowledge-board-button${activeBoard?.id === board.id ? " knowledge-board-button--active" : ""}`}
-              onClick={() => setActiveBoardId(board.id)}
-            >
-              <Columns3 size={16} />
-              <span>{board.title}</span>
-            </button>
-          ))}
-        </div>
+            <div className="knowledge-create">
+              <input
+                className="event-dialog-input"
+                value={boardTitle}
+                onChange={(event) => setBoardTitle(event.target.value)}
+                placeholder="Board name"
+              />
+              <Button type="button" onClick={createBoard}>
+                <Plus />
+                Board
+              </Button>
+            </div>
+
+            <div className="knowledge-board-list">
+              {boards.map((board) => (
+                <button
+                  type="button"
+                  key={board.id}
+                  className={`knowledge-board-button${activeBoard?.id === board.id ? " knowledge-board-button--active" : ""}`}
+                  onClick={() => setActiveBoardId(board.id)}
+                >
+                  <Columns3 size={16} />
+                  <span>{board.title}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </aside>
 
       <main className="knowledge-main">
