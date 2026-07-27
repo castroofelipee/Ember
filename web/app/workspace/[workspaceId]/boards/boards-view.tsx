@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 import type {
   Board,
   BoardCard,
@@ -81,13 +81,6 @@ function typeLabel(type: EntityType): string {
   return ENTITY_TYPES.find((item) => item.value === type)?.label ?? type;
 }
 
-function apiHeaders(accessToken: string | null) {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-  };
-}
-
 async function responseError(response: Response, fallback: string): Promise<string> {
   try {
     const body = await response.json();
@@ -112,11 +105,11 @@ async function responseError(response: Response, fallback: string): Promise<stri
 }
 
 async function jsonRequest<T>(
-  input: RequestInfo | URL,
+  input: string,
   init: RequestInit,
   fallback: string,
 ): Promise<T> {
-  const response = await fetch(input, init);
+  const response = await apiFetch(input, init);
   if (!response.ok) throw new Error(await responseError(response, fallback));
   return (await response.json()) as T;
 }
@@ -228,7 +221,7 @@ function isScheduledForFuture(entity: Entity): boolean {
 export function BoardsView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { status: authStatus, accessToken } = useRequireAuth();
+  const { status: authStatus } = useRequireAuth();
   const [mode, setMode] = useState<ViewMode>("board");
   const [boards, setBoards] = useState<Board[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
@@ -265,18 +258,10 @@ export function BoardsView() {
     setError(null);
     try {
       const [boardsResponse, calendarsResponse, foldersResponse, documentsResponse] = await Promise.all([
-        fetch(`/api/workspaces/${workspaceId}/boards`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`/api/workspaces/${workspaceId}/calendars`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`/api/workspaces/${workspaceId}/folders`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`/api/workspaces/${workspaceId}/entities?type=document`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
+        apiFetch(`/api/workspaces/${workspaceId}/boards`),
+        apiFetch(`/api/workspaces/${workspaceId}/calendars`),
+        apiFetch(`/api/workspaces/${workspaceId}/folders`),
+        apiFetch(`/api/workspaces/${workspaceId}/entities?type=document`),
       ]);
       if (!boardsResponse.ok || !calendarsResponse.ok || !foldersResponse.ok || !documentsResponse.ok) {
         setError("Could not load workspace knowledge.");
@@ -294,7 +279,7 @@ export function BoardsView() {
     } finally {
       setLoading(false);
     }
-  }, [authStatus, accessToken, workspaceId]);
+  }, [authStatus, workspaceId]);
 
   useEffect(() => {
     void loadKnowledge();
@@ -324,7 +309,6 @@ export function BoardsView() {
       `/api/workspaces/${workspaceId}/boards`,
       {
         method: "POST",
-        headers: apiHeaders(accessToken),
         body: JSON.stringify({ title, initial_columns: ["Backlog", "Doing", "Done"] }),
       },
       "Could not create board.",
@@ -343,7 +327,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/boards/${board.id}/columns`,
         {
           method: "POST",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({ title: columnTitle.trim() }),
         },
         "Could not create column.",
@@ -359,7 +342,7 @@ export function BoardsView() {
   async function refreshBoard(boardId: string): Promise<Board> {
     const board = await jsonRequest<Board>(
       `/api/workspaces/${workspaceId}/boards/${boardId}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      {},
       "Could not refresh board.",
     );
     setBoards((prev) => prev.map((item) => (item.id === board.id ? board : item)));
@@ -383,7 +366,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/cards/new`,
         {
           method: "POST",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({
             column_id: data.column.id,
             type: data.type,
@@ -428,9 +410,8 @@ export function BoardsView() {
   ): Promise<EventItem | null> {
     const calendarId = calendars[0]?.id;
     if (!calendarId) return null;
-    const response = await fetch(`/api/calendars/${calendarId}/events`, {
+    const response = await apiFetch(`/api/calendars/${calendarId}/events`, {
       method: "POST",
-      headers: apiHeaders(accessToken),
       body: JSON.stringify({
         title: entity.title,
         description: entity.content || null,
@@ -457,7 +438,6 @@ export function BoardsView() {
       `/api/workspaces/${workspaceId}/entities/${entity.id}`,
       {
         method: "PATCH",
-        headers: apiHeaders(accessToken),
         body: JSON.stringify({
           properties: { ...entity.properties, calendar_event_id: eventId },
         }),
@@ -474,9 +454,8 @@ export function BoardsView() {
 
     if (!dueDate) {
       if (!eventId) return entity;
-      const response = await fetch(`/api/events/${eventId}`, {
+      const response = await apiFetch(`/api/events/${eventId}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!response.ok && response.status !== 404) {
         throw new Error(await responseError(response, "Could not remove calendar event."));
@@ -489,9 +468,8 @@ export function BoardsView() {
       return calendarEvent ? await updateCalendarEventLink(entity, calendarEvent.id) : entity;
     }
 
-    const response = await fetch(`/api/events/${eventId}`, {
+    const response = await apiFetch(`/api/events/${eventId}`, {
       method: "PATCH",
-      headers: apiHeaders(accessToken),
       body: JSON.stringify({
         start_at: new Date(`${dueDate}T00:00:00`).toISOString(),
         end_at: nextDayIsoDate(dueDate),
@@ -517,7 +495,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/columns/${column.id}`,
         {
           method: "PATCH",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({ title: title.trim() }),
         },
         "Could not update column.",
@@ -536,7 +513,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/columns/${column.id}`,
         {
           method: "PATCH",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({ position }),
         },
         "Could not move column.",
@@ -554,11 +530,10 @@ export function BoardsView() {
   async function deleteColumn(column: BoardColumn) {
     if (!activeBoard) return;
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/columns/${column.id}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
         },
       );
       if (!response.ok) throw new Error(await responseError(response, "Could not delete column."));
@@ -573,11 +548,10 @@ export function BoardsView() {
     if (!boardToDelete) return;
     setDeletingBoard(true);
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/workspaces/${workspaceId}/boards/${boardToDelete.id}`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
         },
       );
       if (!response.ok) throw new Error(await responseError(response, "Could not delete board."));
@@ -604,7 +578,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/boards/${activeBoard.id}`,
         {
           method: "PATCH",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({ [kind]: [...options, value.trim()] }),
         },
         "Could not update board options.",
@@ -621,11 +594,10 @@ export function BoardsView() {
   async function moveCard(column: BoardColumn) {
     if (!activeBoard || !draggingEntityId) return;
     const position = activeBoard.cards.filter((card) => card.column_id === column.id).length;
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/cards/${draggingEntityId}`,
       {
         method: "PATCH",
-        headers: apiHeaders(accessToken),
         body: JSON.stringify({ column_id: column.id, position }),
       },
     );
@@ -686,7 +658,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/folders`,
         {
           method: "POST",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({ title: folderTitle.trim(), parent_id: activeFolderId }),
         },
         "Could not create folder.",
@@ -706,7 +677,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/folders/${folderId}`,
         {
           method: "PATCH",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({ parent_id: parentId }),
         },
         "Could not move folder.",
@@ -725,7 +695,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/documents`,
         {
           method: "POST",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({
             title: documentTitle.trim(),
             content: `# ${documentTitle.trim()}\n`,
@@ -765,7 +734,6 @@ export function BoardsView() {
         `/api/workspaces/${workspaceId}/entities/${entity.id}`,
         {
           method: "PATCH",
-          headers: apiHeaders(accessToken),
           body: JSON.stringify({
             properties: {
               ...entity.properties,
@@ -794,9 +762,8 @@ export function BoardsView() {
   async function deleteCard(entity: Entity) {
     if (!activeBoard) return;
     try {
-      const response = await fetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
+      const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!response.ok) throw new Error(await responseError(response, "Could not delete card."));
       setBoards((prev) =>
@@ -845,7 +812,6 @@ export function BoardsView() {
           }}
           onUpdated={updateEntityInState}
           workspaceId={workspaceId}
-          accessToken={accessToken}
         />
       </div>
     );
@@ -956,7 +922,6 @@ export function BoardsView() {
       {selectedEntity && selectedEntity.type !== "document" && (
         <EntityDrawer
           workspaceId={workspaceId}
-          accessToken={accessToken}
           entity={selectedEntity}
           onClose={() => setSelectedEntity(null)}
           onUpdated={updateEntityInState}
@@ -1331,7 +1296,6 @@ function DocsPanel({
   folderTitle,
   activeFolderId,
   workspaceId,
-  accessToken,
   onBack,
   onDocumentTitleChange,
   onFolderTitleChange,
@@ -1349,7 +1313,6 @@ function DocsPanel({
   folderTitle: string;
   activeFolderId: string | null;
   workspaceId: string;
-  accessToken: string | null;
   onBack: () => void;
   onDocumentTitleChange: (value: string) => void;
   onFolderTitleChange: (value: string) => void;
@@ -1526,7 +1489,6 @@ function DocsPanel({
       {selectedDocument ? (
         <DocumentEditor
           workspaceId={workspaceId}
-          accessToken={accessToken}
           document={selectedDocument}
           onUpdated={onUpdated}
         />
@@ -1676,12 +1638,10 @@ function DocTreeItem({
 
 function DocumentEditor({
   workspaceId,
-  accessToken,
   document,
   onUpdated,
 }: {
   workspaceId: string;
-  accessToken: string | null;
   document: Entity;
   onUpdated: (entity: Entity) => void;
 }) {
@@ -1696,9 +1656,8 @@ function DocumentEditor({
   }, [document]);
 
   async function saveDocument() {
-    const response = await fetch(`/api/workspaces/${workspaceId}/entities/${document.id}`, {
+    const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${document.id}`, {
       method: "PATCH",
-      headers: apiHeaders(accessToken),
       body: JSON.stringify({
         title,
         content,
@@ -2080,7 +2039,6 @@ function CardCreateDrawer({
 
 function EntityDrawer({
   workspaceId,
-  accessToken,
   entity,
   onClose,
   onUpdated,
@@ -2091,7 +2049,6 @@ function EntityDrawer({
   onSyncCalendarEvent,
 }: {
   workspaceId: string;
-  accessToken: string;
   entity: Entity;
   onClose: () => void;
   onUpdated: (entity: Entity) => void;
@@ -2120,12 +2077,12 @@ function EntityDrawer({
   const [drawerError, setDrawerError] = useState<string | null>(null);
 
   const loadRelated = useCallback(async () => {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/workspaces/${workspaceId}/entities/${entity.id}/related`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      {},
     );
     if (response.ok) setRelated(await response.json());
-  }, [accessToken, entity.id, workspaceId]);
+  }, [entity.id, workspaceId]);
 
   useEffect(() => {
     setTitle(entity.title);
@@ -2141,9 +2098,8 @@ function EntityDrawer({
   }, [entity, loadRelated]);
 
   async function saveEntity() {
-    const response = await fetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
+    const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
       method: "PATCH",
-      headers: apiHeaders(accessToken),
       body: JSON.stringify({
         title,
         type,
@@ -2180,9 +2136,9 @@ function EntityDrawer({
       setResults([]);
       return;
     }
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/workspaces/${workspaceId}/search?q=${encodeURIComponent(value.trim())}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+      {},
     );
     if (response.ok) {
       const items: Entity[] = await response.json();
@@ -2191,9 +2147,8 @@ function EntityDrawer({
   }
 
   async function linkEntity(target: Entity) {
-    const response = await fetch(`/api/workspaces/${workspaceId}/entities/${entity.id}/relations`, {
+    const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${entity.id}/relations`, {
       method: "POST",
-      headers: apiHeaders(accessToken),
       body: JSON.stringify({ to_entity_id: target.id, relation_type: "references" }),
     });
     if (response.ok || response.status === 409) {
@@ -2205,9 +2160,8 @@ function EntityDrawer({
 
   async function createRelatedEntity() {
     if (!relatedTitle.trim()) return;
-    const response = await fetch(`/api/workspaces/${workspaceId}/entities`, {
+    const response = await apiFetch(`/api/workspaces/${workspaceId}/entities`, {
       method: "POST",
-      headers: apiHeaders(accessToken),
       body: JSON.stringify({
         type: relatedType,
         title: relatedTitle.trim(),

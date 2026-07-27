@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, BookOpen, Check, Image as ImageIcon, Plus, Target, Trash2, Upload, X } from "lucide-react";
 import { AppHeader } from "@/app/workspace/[workspaceId]/app-header";
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 import type { HabitData, PersonalItem, Workspace } from "@/lib/types";
 import { VisionCanvas } from "./vision-canvas";
 import { ReadingsView } from "./readings-view";
@@ -19,7 +19,7 @@ const HORIZONS: { key: Horizon; label: string; description: string }[] = [
 ];
 
 export function PersonalSpace() {
-  const { status, accessToken } = useRequireAuth();
+  const { status } = useRequireAuth();
   const [items, setItems] = useState<PersonalItem[]>([]);
   const [tab, setTab] = useState<Tab>("vision");
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
@@ -36,28 +36,26 @@ export function PersonalSpace() {
   const [activeWallId, setActiveWallId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const authHeaders = { Authorization: `Bearer ${accessToken}` };
-  const jsonHeaders = { ...authHeaders, "Content-Type": "application/json" };
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/personal/items", { headers: authHeaders });
+    const response = await apiFetch("/api/personal/items");
     if (response.ok) setItems(await response.json());
-  }, [accessToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (status !== "ready") return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
-    fetch("/api/workspaces", { headers: authHeaders })
+    apiFetch("/api/workspaces")
       .then((response) => (response.ok ? response.json() : []))
       .then((workspaces: Workspace[]) => setWorkspaceId(workspaces[0]?.id ?? null));
-  }, [status, load]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [status, load]);
 
   async function createWall(event: FormEvent) {
     event.preventDefault();
     if (!wallName.trim()) return;
-    const response = await fetch("/api/personal/items", {
-      method: "POST", headers: jsonHeaders,
+    const response = await apiFetch("/api/personal/items", {
+      method: "POST",
       body: JSON.stringify({
         kind: "vision",
         title: wallName,
@@ -71,8 +69,8 @@ export function PersonalSpace() {
   async function createGoal(event: FormEvent) {
     event.preventDefault();
     if (!activeWall || !goalName.trim()) return;
-    const response = await fetch("/api/personal/items", {
-      method: "POST", headers: jsonHeaders,
+    const response = await apiFetch("/api/personal/items", {
+      method: "POST",
       body: JSON.stringify({
         kind: "vision",
         title: goalName,
@@ -99,7 +97,7 @@ export function PersonalSpace() {
     for (const file of list) {
       const body = new FormData();
       body.append("wall_id", wall.id); body.append("file", file);
-      const response = await fetch("/api/personal/vision/upload", { method: "POST", headers: authHeaders, body });
+      const response = await apiFetch("/api/personal/vision/upload", { method: "POST", body });
       if (response.ok) { const created: PersonalItem = await response.json(); setItems((current) => [created, ...current]); }
     }
     setUploading(false);
@@ -112,20 +110,19 @@ export function PersonalSpace() {
   }
 
   async function createHabit(habitTitle: string, data: HabitData) {
-    const response = await fetch("/api/personal/items", { method: "POST", headers: jsonHeaders, body: JSON.stringify({ kind: "habit", title: habitTitle, data }) });
+    const response = await apiFetch("/api/personal/items", { method: "POST", body: JSON.stringify({ kind: "habit", title: habitTitle, data }) });
     if (response.ok) { const created: PersonalItem = await response.json(); setItems((current) => [created, ...current]); }
   }
 
   async function remove(item: PersonalItem) {
-    const response = await fetch(`/api/personal/items/${item.id}`, { method: "DELETE", headers: authHeaders });
+    const response = await apiFetch(`/api/personal/items/${item.id}`, { method: "DELETE" });
     if (response.ok) setItems((current) => current.filter((candidate) => candidate.id !== item.id && candidate.data.wall_id !== item.id));
   }
 
   async function updateItemData(item: PersonalItem, data: Record<string, unknown>) {
     setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, data } : candidate));
-    const response = await fetch(`/api/personal/items/${item.id}`, {
+    const response = await apiFetch(`/api/personal/items/${item.id}`, {
       method: "PATCH",
-      headers: jsonHeaders,
       body: JSON.stringify({ data }),
       keepalive: true,
     });
@@ -136,7 +133,7 @@ export function PersonalSpace() {
     const dates = Array.isArray(item.data.dates) ? item.data.dates as string[] : [];
     const next = dates.includes(iso) ? dates.filter((date) => date !== iso) : [...dates, iso];
     setItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, data: { ...candidate.data, dates: next } } : candidate));
-    const response = await fetch(`/api/personal/items/${item.id}`, { method: "PATCH", headers: jsonHeaders, body: JSON.stringify({ data: { ...item.data, dates: next } }) });
+    const response = await apiFetch(`/api/personal/items/${item.id}`, { method: "PATCH", body: JSON.stringify({ data: { ...item.data, dates: next } }) });
     if (!response.ok) void load();
   }
 
@@ -162,7 +159,7 @@ export function PersonalSpace() {
         </>}
       </> : tab === "habit" ? (
         <HabitTracker habits={habitItems} onCreate={createHabit} onUpdate={updateItemData} onToggle={toggleHabit} onRemove={remove}/>
-      ) : <ReadingsView items={items} accessToken={accessToken} onCreated={(item) => setItems((current) => [item, ...current])} onUpdated={(item) => setItems((current) => current.map((candidate) => candidate.id === item.id ? item : candidate))}/>}
+      ) : <ReadingsView items={items} onCreated={(item) => setItems((current) => [item, ...current])} onUpdated={(item) => setItems((current) => current.map((candidate) => candidate.id === item.id ? item : candidate))}/>}
     </main>
 
     {wallModal && <div className="vision-drawer-backdrop" onClick={() => setWallModal(false)}><aside className="vision-drawer" onClick={(event) => event.stopPropagation()}><header><div><span>NEW BOARD</span><h2>Create a vision board</h2></div><button type="button" onClick={() => setWallModal(false)}><X size={19}/></button></header><form onSubmit={createWall}><div className="vision-drawer-intro"><span className="personal-modal-icon"><ImageIcon size={20}/></span><p>Name the visual space you want to build and revisit.</p></div><label className="personal-modal-field"><span>Board name</span><input autoFocus value={wallName} onChange={(event) => setWallName(event.target.value)} placeholder="e.g. My dream home" maxLength={240}/></label><footer><button type="button" className="vision-drawer-cancel" onClick={() => setWallModal(false)}>Cancel</button><button className="personal-primary">Create board</button></footer></form></aside></div>}

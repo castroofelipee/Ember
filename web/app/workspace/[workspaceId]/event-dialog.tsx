@@ -10,11 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiFetch } from "@/lib/auth-client";
 import { EVENT_COLORS, type Calendar, type RecurrenceFreq, type RecurrenceRule } from "@/lib/types";
 
 type EventDialogProps = {
   calendars: Calendar[];
-  accessToken: string;
   defaultCalendarId?: string;
   initialStart?: Date;
   onClose: () => void;
@@ -126,7 +126,6 @@ function buildRecurrence(
 
 export function EventDialog({
   calendars,
-  accessToken,
   defaultCalendarId,
   initialStart,
   onClose,
@@ -215,12 +214,8 @@ export function EventDialog({
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`/api/calendars/${calendarId}/events`, {
+      const response = await apiFetch(`/api/calendars/${calendarId}/events`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() || null,

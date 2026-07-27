@@ -3,6 +3,7 @@
 import { useState, type SubmitEvent } from "react";
 import { Building2, CalendarDays, Plus } from "lucide-react";
 
+import { apiFetch } from "@/lib/auth-client";
 import type { Calendar } from "@/lib/types";
 
 import { PENDING_PREFERENCES_KEY } from "../onboarding/preferences/preferences-form";
@@ -13,15 +14,14 @@ type Step = "workspace" | "calendars";
  * sessionStorage since no workspace existed yet to attach them to — to the
  * workspace that was just created. Best-effort: a failure here just leaves
  * the workspace on its defaults. */
-async function applyPendingPreferences(accessToken: string, workspaceId: string): Promise<void> {
+async function applyPendingPreferences(workspaceId: string): Promise<void> {
   const raw = sessionStorage.getItem(PENDING_PREFERENCES_KEY);
   if (!raw) return;
   sessionStorage.removeItem(PENDING_PREFERENCES_KEY);
 
   try {
-    await fetch(`/api/workspaces/${workspaceId}/preferences`, {
+    await apiFetch(`/api/workspaces/${workspaceId}/preferences`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: raw,
     });
   } catch {
@@ -31,13 +31,7 @@ async function applyPendingPreferences(accessToken: string, workspaceId: string)
 
 const CALENDAR_COLORS = ["#4f46e5", "#0ea5e9", "#16a34a", "#f59e0b", "#e11d48"];
 
-export function OnboardingTour({
-  accessToken,
-  onDone,
-}: {
-  accessToken: string;
-  onDone: (workspaceId: string) => void;
-}) {
+export function OnboardingTour({ onDone }: { onDone: (workspaceId: string) => void }) {
   const [step, setStep] = useState<Step>("workspace");
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("");
@@ -51,9 +45,8 @@ export function OnboardingTour({
     setPending(true);
     setErrorMessage(null);
 
-    const response = await fetch("/api/workspaces", {
+    const response = await apiFetch("/api/workspaces", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ name: workspaceName }),
     });
 
@@ -64,7 +57,7 @@ export function OnboardingTour({
     }
 
     const workspace = await response.json();
-    await applyPendingPreferences(accessToken, workspace.id);
+    await applyPendingPreferences(workspace.id);
     setWorkspaceId(workspace.id);
     setStep("calendars");
     setPending(false);
@@ -77,9 +70,8 @@ export function OnboardingTour({
     setErrorMessage(null);
 
     const color = CALENDAR_COLORS[calendars.length % CALENDAR_COLORS.length];
-    const response = await fetch(`/api/workspaces/${workspaceId}/calendars`, {
+    const response = await apiFetch(`/api/workspaces/${workspaceId}/calendars`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ name: calendarName, color }),
     });
 

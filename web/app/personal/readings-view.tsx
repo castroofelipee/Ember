@@ -3,9 +3,10 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { AlertCircle, BookOpen, CalendarDays, CheckCircle2, Library, Pencil, Plus, Star, Tag, TrendingUp, Trash2, Upload, X } from "lucide-react";
+import { apiFetch } from "@/lib/auth-client";
 import type { PersonalItem } from "@/lib/types";
 
-type Props = { items: PersonalItem[]; accessToken: string; onCreated: (item: PersonalItem) => void; onUpdated: (item: PersonalItem) => void };
+type Props = { items: PersonalItem[]; onCreated: (item: PersonalItem) => void; onUpdated: (item: PersonalItem) => void };
 type Alert = { kind: "success" | "error"; message: string } | null;
 type Shelf = "reading" | "finished" | "want_to_read";
 const today = () => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; };
@@ -14,7 +15,7 @@ const SHELVES: Shelf[] = ["reading", "finished", "want_to_read"];
 const shelfOf = (book: PersonalItem): Shelf => SHELVES.find((shelf) => shelf === book.data.status) ?? "want_to_read";
 const text = (value: unknown) => (value == null ? "" : String(value));
 
-export function ReadingsView({ items, accessToken, onCreated, onUpdated }: Props) {
+export function ReadingsView({ items, onCreated, onUpdated }: Props) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [rating, setRating] = useState(0);
@@ -72,7 +73,7 @@ export function ReadingsView({ items, accessToken, onCreated, onUpdated }: Props
     if (cover) body.set("cover", cover);
     else if (editing && dropCover) body.set("remove_cover", "true");
     try {
-      const response = await fetch(editing ? `/api/personal/readings/${editing.id}` : "/api/personal/readings", { method: editing ? "PATCH" : "POST", headers: { Authorization: `Bearer ${accessToken}` }, body });
+      const response = await apiFetch(editing ? `/api/personal/readings/${editing.id}` : "/api/personal/readings", { method: editing ? "PATCH" : "POST", body });
       if (!response.ok) { const result = await response.json().catch(() => null); throw new Error(typeof result?.detail === "string" ? result.detail : "Could not save this reading."); }
       const saved: PersonalItem = await response.json();
       if (editing) onUpdated(saved); else onCreated(saved);
@@ -95,7 +96,7 @@ export function ReadingsView({ items, accessToken, onCreated, onUpdated }: Props
     body.set("total_pages", String(Number(data.total_pages ?? 0)));
     body.set("rating", String(stars));
     try {
-      const response = await fetch(`/api/personal/readings/${book.id}`, { method: "PATCH", headers: { Authorization: `Bearer ${accessToken}` }, body });
+      const response = await apiFetch(`/api/personal/readings/${book.id}`, { method: "PATCH", body });
       if (!response.ok) throw new Error("Could not save your rating.");
       onUpdated(await response.json());
       notify({ kind: "success", message: `Rated ${stars} out of 5.` });
@@ -125,9 +126,8 @@ export function ReadingsView({ items, accessToken, onCreated, onUpdated }: Props
       finished_at: completed ? (progressBook.data.finished_at ?? today()) : null,
     };
     try {
-      const response = await fetch(`/api/personal/items/${progressBook.id}`, {
+      const response = await apiFetch(`/api/personal/items/${progressBook.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ data }),
       });
       if (!response.ok) throw new Error("Could not update your reading progress.");

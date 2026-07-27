@@ -3,6 +3,7 @@
 import { Bell, BellRing, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { apiFetch } from "@/lib/auth-client";
 import type { EventItem } from "@/lib/types";
 
 const REMINDER_MS = 10 * 60 * 1000;
@@ -12,7 +13,6 @@ const SEEN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 type EventRemindersProps = {
   workspaceId: string;
-  accessToken: string;
 };
 
 type Reminder = {
@@ -52,7 +52,7 @@ function formatStart(start: Date): string {
   }).format(start);
 }
 
-export function EventReminders({ workspaceId, accessToken }: EventRemindersProps) {
+export function EventReminders({ workspaceId }: EventRemindersProps) {
   const [permission, setPermission] = useState<NotificationPermission | "unsupported">(() =>
     typeof window !== "undefined" && "Notification" in window
       ? Notification.permission
@@ -134,9 +134,8 @@ export function EventReminders({ workspaceId, accessToken }: EventRemindersProps
     });
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/workspaces/${workspaceId}/events?${params.toString()}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
       if (!response.ok) return;
 
@@ -162,7 +161,7 @@ export function EventReminders({ workspaceId, accessToken }: EventRemindersProps
     } catch {
       // A transient network failure is retried at the next interval.
     }
-  }, [accessToken, showReminder, workspaceId]);
+  }, [showReminder, workspaceId]);
 
   useEffect(() => {
     const onFirstInteraction = () => unlockAudio();

@@ -8,9 +8,9 @@ import { EventReminders } from "./event-reminders";
 
 export function WorkspaceReminders() {
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { status, accessToken } = useRequireAuth();
+  const { status } = useRequireAuth();
 
-  if (status !== "ready" || !accessToken) return null;
+  if (status !== "ready") return null;
 
-  return <EventReminders workspaceId={workspaceId} accessToken={accessToken} />;
+  return <EventReminders workspaceId={workspaceId} />;
 }

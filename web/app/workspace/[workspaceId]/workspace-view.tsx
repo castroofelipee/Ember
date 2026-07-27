@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
-import { useRequireAuth } from "@/lib/auth-client";
+import { apiFetch, useRequireAuth } from "@/lib/auth-client";
 import {
   DEFAULT_CALENDAR_COLOR,
   type Calendar,
@@ -41,7 +41,7 @@ function localDateInTimeZone(value: string, timeZone: string): Date {
 export function WorkspaceView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
-  const { status: authStatus, accessToken } = useRequireAuth();
+  const { status: authStatus } = useRequireAuth();
   const [status, setStatus] = useState<Status>("loading");
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [hiddenCalendarIds, setHiddenCalendarIds] = useState<Set<string>>(new Set());
@@ -104,16 +104,15 @@ export function WorkspaceView() {
         start: start.toISOString(),
         end: end.toISOString(),
       });
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/workspaces/${workspaceId}/events?${params.toString()}`,
-        { headers: { Authorization: `Bearer ${accessToken}` } },
       );
       if (response.ok) {
         const items: EventItem[] = await response.json();
         setEvents(items.map(toWeekEvent));
       }
     },
-    [authStatus, accessToken, workspaceId, toWeekEvent],
+    [authStatus, workspaceId, toWeekEvent],
   );
 
   const handleVisibleRangeChange = useCallback(
@@ -149,12 +148,8 @@ export function WorkspaceView() {
         ),
       );
 
-      const response = await fetch(`/api/events/${event.id}`, {
+      const response = await apiFetch(`/api/events/${event.id}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
         body: JSON.stringify({
           start_at: start.toISOString(),
           end_at: end.toISOString(),
@@ -168,19 +163,15 @@ export function WorkspaceView() {
       }
       refetchEvents();
     },
-    [accessToken, refetchEvents],
+    [refetchEvents],
   );
 
   const saveEventEdit = useCallback(
     async (event: WeekEvent, edit: EventEdit) => {
       setSavingEdit(true);
       try {
-        const response = await fetch(`/api/events/${event.id}`, {
+        const response = await apiFetch(`/api/events/${event.id}`, {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
-          },
           body: JSON.stringify({
             start_at: edit.start.toISOString(),
             end_at: edit.end.toISOString(),
@@ -200,16 +191,15 @@ export function WorkspaceView() {
         setSavingEdit(false);
       }
     },
-    [accessToken, refetchEvents],
+    [refetchEvents],
   );
 
   const deleteSelectedEvent = useCallback(
     async (event: WeekEvent) => {
       setDeleting(true);
       try {
-        const response = await fetch(`/api/events/${event.id}`, {
+        const response = await apiFetch(`/api/events/${event.id}`, {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (response.ok) {
           setSelected(null);
@@ -220,7 +210,7 @@ export function WorkspaceView() {
         setDeleting(false);
       }
     },
-    [accessToken, refetchEvents],
+    [refetchEvents],
   );
 
   const deleteRecurringEvent = useCallback(
@@ -231,9 +221,8 @@ export function WorkspaceView() {
           mode,
           occurrence_start: event.start.toISOString(),
         });
-        const response = await fetch(`/api/events/${event.id}/bulk-delete?${params.toString()}`, {
+        const response = await apiFetch(`/api/events/${event.id}/bulk-delete?${params.toString()}`, {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (response.ok) {
           setSelected(null);
@@ -244,7 +233,7 @@ export function WorkspaceView() {
         setDeleting(false);
       }
     },
-    [accessToken, refetchEvents],
+    [refetchEvents],
   );
 
   const openDeleteDialog = useCallback(() => {
@@ -273,17 +262,12 @@ export function WorkspaceView() {
     let cancelled = false;
 
     const loadCalendars = async () => {
-      await fetch(`/api/workspaces/${workspaceId}/holiday-settings/sync`, {
+      await apiFetch(`/api/workspaces/${workspaceId}/holiday-settings/sync`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
       });
       const [response, preferencesResponse] = await Promise.all([
-        fetch(`/api/workspaces/${workspaceId}/calendars`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        fetch(`/api/workspaces/${workspaceId}/preferences`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
+        apiFetch(`/api/workspaces/${workspaceId}/calendars`),
+        apiFetch(`/api/workspaces/${workspaceId}/preferences`),
       ]);
       if (cancelled) return;
       if (response.status === 404) {
@@ -302,7 +286,7 @@ export function WorkspaceView() {
     return () => {
       cancelled = true;
     };
-  }, [authStatus, accessToken, workspaceId]);
+  }, [authStatus, workspaceId]);
 
   if (authStatus !== "ready" || status === "loading") {
     return (
@@ -402,7 +386,6 @@ export function WorkspaceView() {
       {dialog.open && (
         <EventDialog
           calendars={calendars}
-          accessToken={accessToken}
           initialStart={dialog.initialStart}
           onClose={() => setDialog({ open: false })}
           onCreated={() => {
