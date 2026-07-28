@@ -153,6 +153,8 @@ export type Board = {
   description: string | null;
   label_options: string[];
   assignee_options: string[];
+  /** Label name -> six-digit hex colour. Labels absent here use the default. */
+  label_colors: Record<string, string>;
   created_at: string;
   updated_at: string;
   columns: BoardColumn[];

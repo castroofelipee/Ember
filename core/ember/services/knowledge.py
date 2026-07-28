@@ -344,6 +344,21 @@ async def update_board(session: AsyncSession, board: Board, data: BoardUpdateReq
         board.label_options = data.label_options
     if data.assignee_options is not None:
         board.assignee_options = data.assignee_options
+    if data.label_colors is not None:
+        board.label_colors = data.label_colors
+
+    # A colour belongs to a label, so one for a label that no longer exists is
+    # dead weight — and would silently come back to life if the label were
+    # recreated. Rebuilding the dict (rather than deleting keys) is also what
+    # marks the JSONB column dirty.
+    if data.label_options is not None or data.label_colors is not None:
+        known = {label.casefold() for label in board.label_options}
+        board.label_colors = {
+            label: color
+            for label, color in board.label_colors.items()
+            if label.casefold() in known
+        }
+
     await session.flush()
     await session.refresh(board)
     return board

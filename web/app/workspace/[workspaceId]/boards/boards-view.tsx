@@ -212,7 +212,44 @@ function normalizeBoard(board: Board): Board {
     assignee_options: Array.isArray(board.assignee_options)
       ? board.assignee_options.filter((item): item is string => typeof item === "string")
       : Array.from(new Set(assignees)),
+    label_colors:
+      board.label_colors && typeof board.label_colors === "object" ? board.label_colors : {},
   };
+}
+
+/** The label chip colour before anyone picks one — the board's original purple. */
+const DEFAULT_LABEL_COLOR = "#21103b";
+const HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** Labels are matched case-insensitively everywhere else on the board, so the
+ * colour lookup has to be too, or "Urgent" and "urgent" would drift apart. */
+function labelColor(board: Board | null, label: string): string {
+  if (!board) return DEFAULT_LABEL_COLOR;
+  const key = label.toLowerCase();
+  const match = Object.entries(board.label_colors).find(
+    ([name]) => name.toLowerCase() === key,
+  );
+  return match && HEX_COLOR.test(match[1]) ? match[1] : DEFAULT_LABEL_COLOR;
+}
+
+/** Black or white text, whichever stays readable on a colour the user chose
+ * freely. WCAG relative luminance; the threshold is the usual black/white
+ * crossover point for maximum contrast against the two extremes. */
+function labelTextColor(background: string): string {
+  const hex = background.slice(1);
+  const full = hex.length === 3 ? hex.replace(/./g, (channel) => channel + channel) : hex;
+  const value = Number.parseInt(full, 16);
+  const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map((channel) => {
+    const ratio = channel / 255;
+    return ratio <= 0.03928 ? ratio / 12.92 : ((ratio + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+  return luminance > 0.36 ? "#141414" : "#ffffff";
+}
+
+function labelChipStyle(board: Board | null, label: string) {
+  const background = labelColor(board, label);
+  return { background, color: labelTextColor(background) };
 }
 
 function checklistProp(entity: Entity): ChecklistItem[] {
@@ -675,6 +712,30 @@ export function BoardsView() {
     }
   }
 
+  async function setLabelColor(label: string, color: string) {
+    if (!activeBoard) return;
+    // Replace whatever casing of the label already carries a colour, so a
+    // label never ends up with two entries fighting over it.
+    const key = label.toLowerCase();
+    const colors = Object.fromEntries(
+      Object.entries(activeBoard.label_colors).filter(([name]) => name.toLowerCase() !== key),
+    );
+    try {
+      const board = await jsonRequest<Board>(
+        `/api/workspaces/${workspaceId}/boards/${activeBoard.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ label_colors: { ...colors, [label]: color } }),
+        },
+        "Could not update label colour.",
+      );
+      setBoards((prev) => prev.map((item) => (item.id === board.id ? board : item)));
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not update label colour.");
+    }
+  }
+
   /** `beforeEntityId` names the card the dragged one should land above, or is
    * null to append. It is resolved against the column's *full* card list —
    * closed and future-scheduled cards are hidden from the board but still hold
@@ -1040,6 +1101,7 @@ export function BoardsView() {
           onLabelOptionChange={setLabelOption}
           onAssigneeOptionChange={setAssigneeOption}
           onAddLabelOption={() => addBoardOption("label_options", labelOption)}
+          onSetLabelColor={setLabelColor}
           onAddAssigneeOption={() => addBoardOption("assignee_options", assigneeOption)}
         />
       </main>
@@ -1145,6 +1207,7 @@ function BoardPanel({
   onAssigneeOptionChange,
   onAddLabelOption,
   onAddAssigneeOption,
+  onSetLabelColor,
 }: {
   activeBoard: Board | null;
   columnTitle: string;
@@ -1176,6 +1239,7 @@ function BoardPanel({
   onAssigneeOptionChange: (value: string) => void;
   onAddLabelOption: () => void;
   onAddAssigneeOption: () => void;
+  onSetLabelColor: (label: string, color: string) => void;
 }) {
   if (!activeBoard) {
     return (
@@ -1232,7 +1296,14 @@ function BoardPanel({
             <Button type="button" onClick={onAddLabelOption}><Plus /></Button>
           </div>
           <div className="knowledge-option-list">
-            {activeBoard.label_options.map((option) => <span key={option}>{option}</span>)}
+            {activeBoard.label_options.map((option) => (
+              <LabelColorChip
+                key={option}
+                label={option}
+                color={labelColor(activeBoard, option)}
+                onChange={(color) => onSetLabelColor(option, color)}
+              />
+            ))}
           </div>
         </div>
         <div className="knowledge-board-option-group">
@@ -1326,6 +1397,7 @@ function BoardPanel({
                     <BoardCardView
                       key={card.entity.id}
                       card={card}
+                      board={activeBoard}
                       active={selectedEntity?.id === card.entity.id}
                       dropBefore={
                         cardDropHint?.columnId === column.id &&
@@ -1888,6 +1960,7 @@ function DocumentEditor({
 
 function BoardCardView({
   card,
+  board,
   active,
   dropBefore,
   dragging,
@@ -1900,6 +1973,7 @@ function BoardCardView({
   onDelete,
 }: {
   card: BoardCard;
+  board: Board | null;
   active: boolean;
   dropBefore: boolean;
   dragging: boolean;
@@ -1976,7 +2050,9 @@ function BoardCardView({
       {labels.length > 0 && (
         <span className="knowledge-card-labels">
           {labels.map((label) => (
-            <span key={label}>{label}</span>
+            <span key={label} style={labelChipStyle(board, label)}>
+              {label}
+            </span>
           ))}
         </span>
       )}
@@ -2011,16 +2087,65 @@ function BoardCardView({
   );
 }
 
+/** A label shown in its own colour, doubling as the control that changes it.
+ *
+ * The native colour input fires `change` continuously while the user drags
+ * around the OS picker, so the chip previews from local state and only saves
+ * on blur — one request per decision instead of one per pixel. */
+function LabelColorChip({
+  label,
+  color,
+  onChange,
+}: {
+  label: string;
+  color: string;
+  onChange: (color: string) => void;
+}) {
+  const [preview, setPreview] = useState(color);
+  const [savedColor, setSavedColor] = useState(color);
+
+  // Adjusting during render rather than in an effect: when the saved colour
+  // changes underneath us (the board reloaded, or the save came back), the
+  // preview follows it without a second render pass.
+  if (color !== savedColor) {
+    setSavedColor(color);
+    setPreview(color);
+  }
+
+  return (
+    <span
+      className="knowledge-option-color"
+      style={{ background: preview, color: labelTextColor(preview) }}
+    >
+      {label}
+      <input
+        type="color"
+        value={preview}
+        aria-label={`Colour for label ${label}`}
+        title={`Colour for label ${label}`}
+        onChange={(event) => setPreview(event.target.value)}
+        onBlur={() => {
+          if (preview.toLowerCase() !== color.toLowerCase()) onChange(preview);
+        }}
+      />
+    </span>
+  );
+}
+
 function OptionPicker({
   options,
   selected,
   onChange,
   empty,
+  colorFor,
 }: {
   options: string[];
   selected: string[];
   onChange: (value: string[]) => void;
   empty: string;
+  /** Supplied for labels, so a picked option wears its own colour instead of
+   * the generic accent. Omitted for assignees, which have no colours. */
+  colorFor?: (option: string) => string;
 }) {
   const available = Array.from(new Set([...options, ...selected]));
   if (available.length === 0) return <span className="knowledge-option-empty">{empty}</span>;
@@ -2028,10 +2153,16 @@ function OptionPicker({
     <div className="knowledge-option-picker">
       {available.map((option) => {
         const active = selected.includes(option);
+        const color = colorFor?.(option);
         return (
           <button
             type="button"
             className={`knowledge-option-choice${active ? " knowledge-option-choice--active" : ""}`}
+            style={
+              active && color
+                ? { background: color, borderColor: color, color: labelTextColor(color) }
+                : undefined
+            }
             aria-pressed={active}
             key={option}
             onClick={() => onChange(active ? selected.filter((item) => item !== option) : [...selected, option])}
@@ -2138,7 +2269,7 @@ function CardCreateDrawer({
               <Tag size={14} />
               Labels
             </span>
-            <OptionPicker options={board.label_options} selected={labels} onChange={setLabels} empty="Create labels in the board first" />
+            <OptionPicker options={board.label_options} selected={labels} onChange={setLabels} empty="Create labels in the board first" colorFor={(option) => labelColor(board, option)} />
           </div>
           <div className="event-dialog-field">
             <span className="event-dialog-label">
@@ -2449,7 +2580,7 @@ function EntityDrawer({
               <Tag size={14} />
               Labels
             </span>
-            <OptionPicker options={board?.label_options ?? labels} selected={labels} onChange={setLabels} empty="Create labels in the board first" />
+            <OptionPicker options={board?.label_options ?? labels} selected={labels} onChange={setLabels} empty="Create labels in the board first" colorFor={(option) => labelColor(board, option)} />
           </div>
           <div className="event-dialog-field">
             <span className="event-dialog-label">

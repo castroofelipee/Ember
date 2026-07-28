@@ -129,6 +129,11 @@ class Board(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     assignee_options: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default="[]"
     )
+    # Label name -> hex colour. Kept beside label_options rather than folded
+    # into it so cards can keep referring to labels by plain name.
+    label_colors: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
 
     __table_args__ = (Index("ix_boards_workspace_id", "workspace_id"),)
 

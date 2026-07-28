@@ -190,6 +190,60 @@ async def test_update_board_assignment_options(client: AsyncClient) -> None:
     assert response.json()["assignee_options"] == ["Felipe", "Ana"]
 
 
+async def test_set_label_colors(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    board = await _make_board(client, token, workspace_id)
+    await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}",
+        headers=_auth_header(token),
+        json={"label_options": ["Urgent", "Backend"]},
+    )
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}",
+        headers=_auth_header(token),
+        json={"label_colors": {"Urgent": "#F00", "Backend": "#7C3AED"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["label_colors"] == {"Urgent": "#ff0000", "Backend": "#7c3aed"}
+
+
+async def test_removing_a_label_drops_its_color(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    board = await _make_board(client, token, workspace_id)
+    await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}",
+        headers=_auth_header(token),
+        json={"label_options": ["Urgent", "Backend"], "label_colors": {"Urgent": "#ff0000"}},
+    )
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}",
+        headers=_auth_header(token),
+        json={"label_options": ["Backend"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["label_colors"] == {}
+
+
+async def test_non_hex_label_color_is_rejected(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    board = await _make_board(client, token, workspace_id)
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}",
+        headers=_auth_header(token),
+        json={"label_colors": {"Urgent": "red; background: url(evil)"}},
+    )
+
+    assert response.status_code == 422
+
+
 async def test_move_board_column_in_others_workspace_returns_404(client: AsyncClient) -> None:
     token_a = await _signup(client)
     token_b = await _signup_second_user(client, token_a)

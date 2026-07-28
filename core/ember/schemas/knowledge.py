@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -161,9 +162,20 @@ class BoardCreateRequest(BaseModel):
         return columns
 
 
+_HEX_COLOR = re.compile(r"^#(?:[0-9a-f]{3}|[0-9a-f]{6})$", re.IGNORECASE)
+
+
+def _expand_hex(color: str) -> str:
+    """Store the six-digit form so clients never have to handle both."""
+    if len(color) == 4:
+        return "#" + "".join(channel * 2 for channel in color[1:])
+    return color
+
+
 class BoardUpdateRequest(BaseModel):
     label_options: list[str] | None = Field(default=None, max_length=50)
     assignee_options: list[str] | None = Field(default=None, max_length=50)
+    label_colors: dict[str, str] | None = Field(default=None, max_length=50)
 
     @field_validator("label_options", "assignee_options")
     @classmethod
@@ -179,6 +191,24 @@ class BoardUpdateRequest(BaseModel):
                 options.append(stripped)
                 seen.add(key)
         return options
+
+    @field_validator("label_colors")
+    @classmethod
+    def normalize_label_colors(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        """Colours reach the browser as inline styles, so only literal hex is
+        accepted — anything else is rejected rather than sanitized, to keep an
+        arbitrary string from ever reaching a style attribute."""
+        if value is None:
+            return None
+        colors: dict[str, str] = {}
+        for label, color in value.items():
+            stripped = label.strip()
+            if not stripped:
+                continue
+            if not _HEX_COLOR.match(color.strip()):
+                raise ValueError(f"{color!r} is not a hex colour like #7c3aed")
+            colors[stripped] = _expand_hex(color.strip().lower())
+        return colors
 
 
 class BoardColumnCreateRequest(BaseModel):
@@ -279,6 +309,7 @@ class BoardResponse(BaseModel):
     description: str | None
     label_options: list[str] = Field(default_factory=list)
     assignee_options: list[str] = Field(default_factory=list)
+    label_colors: dict[str, str] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     columns: list[BoardColumnResponse] = Field(default_factory=list)
