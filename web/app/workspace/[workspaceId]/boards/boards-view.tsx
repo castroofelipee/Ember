@@ -84,6 +84,10 @@ const RELATED_TYPES: { value: EntityType; label: string }[] = [
 type ViewMode = "board" | "docs";
 type CardRecurrence = "none" | "daily";
 type ColumnDropHint = { columnId: string; edge: "before" | "after" } | null;
+/** Where a dragged card would land: immediately above `beforeEntityId`, or at
+ * the end of the column when it is null. Anchoring to a neighbour rather than
+ * an index keeps the hint correct while the board re-renders mid-drag. */
+type CardDropHint = { columnId: string; beforeEntityId: string | null } | null;
 type FolderDropTarget = string | "workspace" | null;
 
 function typeLabel(type: EntityType): string {
@@ -314,6 +318,7 @@ export function BoardsView() {
   const [draggingEntityId, setDraggingEntityId] = useState<string | null>(null);
   const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
   const [columnDropHint, setColumnDropHint] = useState<ColumnDropHint>(null);
+  const [cardDropHint, setCardDropHint] = useState<CardDropHint>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [completionNotice, setCompletionNotice] = useState<string | null>(null);
@@ -436,6 +441,7 @@ export function BoardsView() {
     recurrence: CardRecurrence;
   }) {
     if (!activeBoard || !data.title.trim()) return;
+    const existingCardIds = new Set(activeBoard.cards.map((card) => card.entity.id));
     try {
       const updatedBoard = await jsonRequest<Board>(
         `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/cards/new`,
@@ -455,7 +461,10 @@ export function BoardsView() {
         },
         "Could not create card.",
       );
-      const createdEntity = updatedBoard.cards.at(-1)?.entity ?? null;
+      // The board response is ordered by column then position, so the new card
+      // is rarely the last one — identify it by being the id we did not have.
+      const createdEntity =
+        updatedBoard.cards.find((card) => !existingCardIds.has(card.entity.id))?.entity ?? null;
       setBoards((prev) => prev.map((item) => (item.id === updatedBoard.id ? updatedBoard : item)));
       setSelectedEntity(createdEntity);
       setCreatingCardColumn(null);
@@ -666,11 +675,29 @@ export function BoardsView() {
     }
   }
 
-  async function moveCard(column: BoardColumn) {
+  /** `beforeEntityId` names the card the dragged one should land above, or is
+   * null to append. It is resolved against the column's *full* card list —
+   * closed and future-scheduled cards are hidden from the board but still hold
+   * positions, so counting only visible cards would place the drop wrong. */
+  async function moveCard(column: BoardColumn, beforeEntityId: string | null) {
     if (!activeBoard || !draggingEntityId) return;
-    const position = activeBoard.cards.filter((card) => card.column_id === column.id).length;
+    const entityId = draggingEntityId;
+    setDraggingEntityId(null);
+    setCardDropHint(null);
+    // Dropping a card onto itself — or onto the gap it already occupies —
+    // resolves to its own id and would otherwise read as "append to the end".
+    if (beforeEntityId === entityId) return;
+
+    const siblings = activeBoard.cards
+      .filter((card) => card.column_id === column.id && card.entity.id !== entityId)
+      .sort((a, b) => a.position - b.position);
+    const anchorIndex = beforeEntityId
+      ? siblings.findIndex((card) => card.entity.id === beforeEntityId)
+      : -1;
+    const position = anchorIndex < 0 ? siblings.length : anchorIndex;
+
     const response = await apiFetch(
-      `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/cards/${draggingEntityId}`,
+      `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/cards/${entityId}`,
       {
         method: "PATCH",
         body: JSON.stringify({ column_id: column.id, position }),
@@ -680,7 +707,6 @@ export function BoardsView() {
       const board: Board = await response.json();
       setBoards((prev) => prev.map((item) => (item.id === board.id ? board : item)));
     }
-    setDraggingEntityId(null);
   }
 
   function handleColumnDragStart(columnId: string) {
@@ -986,8 +1012,16 @@ export function BoardsView() {
             setDraggingEntityId(entityId);
             setDraggingColumnId(null);
             setColumnDropHint(null);
+            setCardDropHint(null);
           }}
-          onDropColumn={moveCard}
+          onDropCard={moveCard}
+          draggingEntityId={draggingEntityId}
+          cardDropHint={cardDropHint}
+          onCardDragOver={setCardDropHint}
+          onCardDragEnd={() => {
+            setDraggingEntityId(null);
+            setCardDropHint(null);
+          }}
           draggingColumnId={draggingColumnId}
           columnDropHint={columnDropHint}
           onColumnDragStart={handleColumnDragStart}
@@ -1084,6 +1118,8 @@ function BoardPanel({
   activeBoard,
   columnTitle,
   selectedEntity,
+  draggingEntityId,
+  cardDropHint,
   draggingColumnId,
   columnDropHint,
   onColumnTitleChange,
@@ -1092,7 +1128,9 @@ function BoardPanel({
   onUpdateColumn,
   onDeleteColumn,
   onDragStart,
-  onDropColumn,
+  onDropCard,
+  onCardDragOver,
+  onCardDragEnd,
   onColumnDragStart,
   onColumnDragOver,
   onColumnDrop,
@@ -1111,6 +1149,8 @@ function BoardPanel({
   activeBoard: Board | null;
   columnTitle: string;
   selectedEntity: Entity | null;
+  draggingEntityId: string | null;
+  cardDropHint: CardDropHint;
   draggingColumnId: string | null;
   columnDropHint: ColumnDropHint;
   onColumnTitleChange: (value: string) => void;
@@ -1119,7 +1159,9 @@ function BoardPanel({
   onUpdateColumn: (column: BoardColumn, title: string) => void;
   onDeleteColumn: (column: BoardColumn) => void;
   onDragStart: (entityId: string) => void;
-  onDropColumn: (column: BoardColumn) => void;
+  onDropCard: (column: BoardColumn, beforeEntityId: string | null) => void;
+  onCardDragOver: (hint: CardDropHint) => void;
+  onCardDragEnd: () => void;
   onColumnDragStart: (columnId: string) => void;
   onColumnDragOver: (column: BoardColumn, event: DragEvent<HTMLElement>) => void;
   onColumnDrop: (column: BoardColumn, event: DragEvent<HTMLElement>) => void;
@@ -1240,14 +1282,28 @@ function BoardPanel({
                 key={column.id}
                 onDragOver={(event) => {
                   event.preventDefault();
-                  if (draggingColumnId) onColumnDragOver(column, event);
+                  if (draggingColumnId) {
+                    onColumnDragOver(column, event);
+                    return;
+                  }
+                  // Cards stop propagation, so reaching here means the pointer
+                  // is over the column's own space — below the last card.
+                  if (draggingEntityId) onCardDragOver({ columnId: column.id, beforeEntityId: null });
+                }}
+                onDragLeave={(event) => {
+                  // Only when the pointer leaves the column itself, not when it
+                  // crosses between the cards nested inside it.
+                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                  if (cardDropHint?.columnId === column.id) onCardDragOver(null);
                 }}
                 onDrop={(event) => {
                   if (draggingColumnId) {
                     void onColumnDrop(column, event);
                     return;
                   }
-                  onDropColumn(column);
+                  // Dropping on the column's padding or the "Add card" button
+                  // means the end of the list.
+                  onDropCard(column, null);
                 }}
               >
                 <ColumnHeader
@@ -1259,17 +1315,55 @@ function BoardPanel({
                   onDragStart={onColumnDragStart}
                   onDragEnd={onColumnDragEnd}
                 />
-                <div className="knowledge-card-list">
-                  {cards.map((card) => (
+                <div
+                  className={`knowledge-card-list${
+                    cardDropHint?.columnId === column.id && cardDropHint.beforeEntityId === null
+                      ? " knowledge-card-list--drop-end"
+                      : ""
+                  }`}
+                >
+                  {cards.map((card, index) => (
                     <BoardCardView
                       key={card.entity.id}
                       card={card}
                       active={selectedEntity?.id === card.entity.id}
+                      dropBefore={
+                        cardDropHint?.columnId === column.id &&
+                        cardDropHint.beforeEntityId === card.entity.id
+                      }
+                      dragging={draggingEntityId === card.entity.id}
                       onSelect={() => onSelectEntity(card.entity)}
                       onDragStart={(event) => {
                         event.dataTransfer.setData("application/x-ember-board-card", card.entity.id);
                         onDragStart(card.entity.id);
                       }}
+                      onDragOver={(event) => {
+                        if (!draggingEntityId || draggingColumnId) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        const after = event.clientY > rect.top + rect.height / 2;
+                        // Landing after this card is the same as landing before
+                        // the next one, so both halves resolve to one anchor.
+                        const beforeEntityId = after
+                          ? cards[index + 1]?.entity.id ?? null
+                          : card.entity.id;
+                        onCardDragOver({ columnId: column.id, beforeEntityId });
+                      }}
+                      onDrop={(event) => {
+                        if (!draggingEntityId || draggingColumnId) return;
+                        event.preventDefault();
+                        // Stop the column handler from also firing and
+                        // overriding this with an append.
+                        event.stopPropagation();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        const after = event.clientY > rect.top + rect.height / 2;
+                        onDropCard(
+                          column,
+                          after ? cards[index + 1]?.entity.id ?? null : card.entity.id,
+                        );
+                      }}
+                      onDragEnd={onCardDragEnd}
                       onClose={() => onCloseCard(card.entity)}
                       onDelete={() => onDeleteCard(card.entity)}
                     />
@@ -1795,15 +1889,25 @@ function DocumentEditor({
 function BoardCardView({
   card,
   active,
+  dropBefore,
+  dragging,
   onSelect,
   onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
   onClose,
   onDelete,
 }: {
   card: BoardCard;
   active: boolean;
+  dropBefore: boolean;
+  dragging: boolean;
   onSelect: () => void;
   onDragStart: (event: DragEvent<HTMLElement>) => void;
+  onDragOver: (event: DragEvent<HTMLElement>) => void;
+  onDrop: (event: DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
   onClose: () => void;
   onDelete: () => void;
 }) {
@@ -1817,11 +1921,14 @@ function BoardCardView({
 
   return (
     <article
-      className={`knowledge-card${active ? " knowledge-card--active" : ""}${completed ? " knowledge-card--completed" : ""}`}
+      className={`knowledge-card${active ? " knowledge-card--active" : ""}${completed ? " knowledge-card--completed" : ""}${dropBefore ? " knowledge-card--drop-before" : ""}${dragging ? " knowledge-card--dragging" : ""}`}
       draggable
       role="button"
       tabIndex={0}
       onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       onClick={onSelect}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {

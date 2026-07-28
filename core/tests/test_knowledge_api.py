@@ -67,6 +67,77 @@ async def test_move_board_column_reorders_columns(client: AsyncClient) -> None:
     assert [column["position"] for column in columns] == [0, 1, 2]
 
 
+async def _make_card(
+    client: AsyncClient, token: str, workspace_id: str, board_id: str, column_id: str, title: str
+) -> dict:
+    response = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board_id}/cards/new",
+        headers=_auth_header(token),
+        json={"column_id": column_id, "type": "task", "title": title},
+    )
+    return response.json()
+
+
+def _column_card_titles(board: dict, column_id: str) -> list[str]:
+    cards = [card for card in board["cards"] if card["column_id"] == column_id]
+    cards.sort(key=lambda card: card["position"])
+    return [card["entity"]["title"] for card in cards]
+
+
+async def test_move_board_card_inserts_at_position(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    board = await _make_board(client, token, workspace_id)
+    board_id = board["id"]
+    backlog = board["columns"][0]["id"]
+    for title in ("First", "Second", "Third"):
+        board = await _make_card(client, token, workspace_id, board_id, backlog, title)
+    third = next(
+        card for card in board["cards"] if card["entity"]["title"] == "Third"
+    )["entity"]["id"]
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board_id}/cards/{third}",
+        headers=_auth_header(token),
+        json={"column_id": backlog, "position": 1},
+    )
+
+    assert response.status_code == 200
+    assert _column_card_titles(response.json(), backlog) == ["First", "Third", "Second"]
+    positions = [card["position"] for card in response.json()["cards"]]
+    assert sorted(positions) == [0, 1, 2]
+
+
+async def test_move_board_card_to_other_column_compacts_source(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    board = await _make_board(client, token, workspace_id)
+    board_id = board["id"]
+    backlog = board["columns"][0]["id"]
+    doing = board["columns"][1]["id"]
+    for title in ("First", "Second", "Third"):
+        board = await _make_card(client, token, workspace_id, board_id, backlog, title)
+    await _make_card(client, token, workspace_id, board_id, doing, "Existing")
+    first = next(
+        card for card in board["cards"] if card["entity"]["title"] == "First"
+    )["entity"]["id"]
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board_id}/cards/{first}",
+        headers=_auth_header(token),
+        json={"column_id": doing, "position": 0},
+    )
+
+    assert response.status_code == 200
+    moved = response.json()
+    assert _column_card_titles(moved, doing) == ["First", "Existing"]
+    assert _column_card_titles(moved, backlog) == ["Second", "Third"]
+    backlog_positions = [
+        card["position"] for card in moved["cards"] if card["column_id"] == backlog
+    ]
+    assert sorted(backlog_positions) == [0, 1]
+
+
 async def test_delete_board_removes_it(client: AsyncClient) -> None:
     token = await _signup(client)
     workspace_id = await _make_workspace(client, token)

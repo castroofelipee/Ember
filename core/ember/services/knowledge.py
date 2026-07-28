@@ -479,13 +479,51 @@ async def get_board_column(
     ).scalar_one_or_none()
 
 
+async def list_column_cards(
+    session: AsyncSession, board_id: uuid.UUID, column_id: uuid.UUID
+) -> list[BoardCard]:
+    return list(
+        (
+            await session.execute(
+                select(BoardCard)
+                .where(BoardCard.board_id == board_id, BoardCard.column_id == column_id)
+                .order_by(BoardCard.position)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
 async def move_board_card(
     session: AsyncSession,
     card: BoardCard,
     column_id: uuid.UUID,
     position: int,
 ) -> BoardCard:
+    """Drop the card at ``position`` within its destination column.
+
+    The whole column is renumbered from zero, because a card is dropped
+    *between* two others: writing only the moved card's position would leave it
+    tied with whatever already sat there, and ties order arbitrarily.
+    """
+    source_column_id = card.column_id
+    siblings = [
+        item
+        for item in await list_column_cards(session, card.board_id, column_id)
+        if item.entity_id != card.entity_id
+    ]
+    siblings.insert(min(position, len(siblings)), card)
     card.column_id = column_id
-    card.position = position
+    for index, item in enumerate(siblings):
+        item.position = index
+
+    # The source column is left with a hole where the card used to be.
+    if source_column_id != column_id:
+        for index, item in enumerate(
+            await list_column_cards(session, card.board_id, source_column_id)
+        ):
+            item.position = index
+
     await session.flush()
     return card
