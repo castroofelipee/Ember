@@ -102,6 +102,7 @@ async def _board_response(db: AsyncSession, board: Board) -> BoardResponse:
         description=board.description,
         label_options=board.label_options,
         assignee_options=board.assignee_options,
+        label_colors=board.label_colors,
         created_at=board.created_at,
         updated_at=board.updated_at,
         columns=[BoardColumnResponse.model_validate(column) for column in columns],

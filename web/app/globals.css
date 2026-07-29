@@ -1885,6 +1885,47 @@
   font-size: 0.75rem;
 }
 
+/* The label chip wears its own colour and carries the picker that sets it. */
+.knowledge-option-list span.knowledge-option-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-right: 0.3rem;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.knowledge-option-color input[type="color"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  /* Chrome and Safari draw a chunky bevelled swatch otherwise. */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.knowledge-option-color input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.knowledge-option-color input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 999px;
+}
+
+.knowledge-option-color input[type="color"]::-moz-color-swatch {
+  border: none;
+  border-radius: 999px;
+}
+
+.knowledge-option-color input[type="color"]:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
 .knowledge-option-choice {
   cursor: pointer;
 }
@@ -2197,6 +2238,7 @@
   gap: 0.35rem;
 }
 
+/* Colour and text colour come from the board's per-label palette, inline. */
 .knowledge-card-labels span {
   border-radius: 999px;
   background: #21103b;
