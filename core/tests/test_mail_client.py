@@ -925,3 +925,207 @@ async def test_list_thread_messages_fetches_thread_email_ids() -> None:
 
     assert [message.id for message in messages] == ["m1", "m2"]
     assert calls[0]["methodCalls"][0] == ["Thread/get", {"accountId": "account-id", "ids": ["thread-1"]}, "c1"]
+
+
+# --- ensure_dns_server / create_domain / get_dns_publish_status -----------
+
+
+async def test_ensure_dns_server_returns_existing_id_when_found() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response(
+            [
+                [
+                    "x:DnsServer/get",
+                    {"list": [{"id": "dns-1", "description": "ember-cloudflare"}]},
+                    "c1",
+                ]
+            ]
+        )
+
+    server_id = await _client_with(handler).ensure_dns_server(
+        "secret-token", description="ember-cloudflare"
+    )
+    assert server_id == "dns-1"
+
+
+async def test_ensure_dns_server_creates_when_not_found() -> None:
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        method = body["methodCalls"][0][0]
+        if method == "x:DnsServer/get":
+            return _jmap_response([["x:DnsServer/get", {"list": []}, "c1"]])
+        return _jmap_response(
+            [["x:DnsServer/set", {"created": {"new1": {"id": "dns-2"}}}, "c1"]]
+        )
+
+    server_id = await _client_with(handler).ensure_dns_server(
+        "secret-token", description="ember-cloudflare"
+    )
+
+    assert server_id == "dns-2"
+    create_fields = calls[1]["methodCalls"][0][1]["create"]["new1"]
+    assert create_fields == {
+        "@type": "Cloudflare",
+        "secret": "secret-token",
+        "description": "ember-cloudflare",
+    }
+
+
+async def test_ensure_dns_server_create_failure_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body["methodCalls"][0][0]
+        if method == "x:DnsServer/get":
+            return _jmap_response([["x:DnsServer/get", {"list": []}, "c1"]])
+        return _jmap_response(
+            [
+                [
+                    "x:DnsServer/set",
+                    {"notCreated": {"new1": {"type": "invalidProperties", "description": "bad"}}},
+                    "c1",
+                ]
+            ]
+        )
+
+    with pytest.raises(MailClientError):
+        await _client_with(handler).ensure_dns_server("bad-token", description="ember-cloudflare")
+
+
+async def test_create_domain_returns_existing_id_without_creating() -> None:
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        return _domain_query_response(("dom-existing",))
+
+    domain_id = await _client_with(handler).create_domain("example.com")
+
+    assert domain_id == "dom-existing"
+    assert len(calls) == 1  # only the lookup, no create call
+
+
+async def test_create_domain_creates_with_automatic_dns_when_missing() -> None:
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        method = body["methodCalls"][0][0]
+        if method == "x:Domain/query":
+            return _domain_query_response(())
+        return _jmap_response([["x:Domain/set", {"created": {"new1": {"id": "dom-new"}}}, "c1"]])
+
+    domain_id = await _client_with(handler).create_domain("example.com", dns_server_id="dns-1")
+
+    assert domain_id == "dom-new"
+    create_fields = calls[1]["methodCalls"][0][1]["create"]["new1"]
+    assert create_fields["name"] == "example.com"
+    assert create_fields["dkimManagement"] == {"@type": "Automatic"}
+    assert create_fields["dnsManagement"] == {"@type": "Automatic", "dnsServerId": "dns-1"}
+
+
+async def test_create_domain_without_dns_server_id_is_manual() -> None:
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        calls.append(body)
+        method = body["methodCalls"][0][0]
+        if method == "x:Domain/query":
+            return _domain_query_response(())
+        return _jmap_response([["x:Domain/set", {"created": {"new1": {"id": "dom-new"}}}, "c1"]])
+
+    await _client_with(handler).create_domain("example.com")
+
+    create_fields = calls[1]["methodCalls"][0][1]["create"]["new1"]
+    assert create_fields["dnsManagement"] == {"@type": "Manual"}
+
+
+async def test_create_domain_creation_failure_raises_client_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body["methodCalls"][0][0]
+        if method == "x:Domain/query":
+            return _domain_query_response(())
+        return _jmap_response(
+            [
+                [
+                    "x:Domain/set",
+                    {"notCreated": {"new1": {"type": "invalidProperties", "description": "bad"}}},
+                    "c1",
+                ]
+            ]
+        )
+
+    with pytest.raises(MailClientError):
+        await _client_with(handler).create_domain("example.com")
+
+
+async def test_get_dns_publish_status_completed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body["methodCalls"][0][0]
+        if method == "x:Task/query":
+            return _jmap_response([["x:Task/query", {"ids": ["task-1"]}, "c1"]])
+        return _jmap_response(
+            [["x:Task/get", {"list": [{"id": "task-1", "status": "completed"}]}, "c1"]]
+        )
+
+    status = await _client_with(handler).get_dns_publish_status("dom-1")
+    assert status.state == "completed"
+    assert status.failure_reason is None
+
+
+async def test_get_dns_publish_status_failed_carries_reason() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body["methodCalls"][0][0]
+        if method == "x:Task/query":
+            return _jmap_response([["x:Task/query", {"ids": ["task-1"]}, "c1"]])
+        return _jmap_response(
+            [
+                [
+                    "x:Task/get",
+                    {
+                        "list": [
+                            {
+                                "id": "task-1",
+                                "status": "failed",
+                                "failureReason": "Cloudflare rejected the token",
+                            }
+                        ]
+                    },
+                    "c1",
+                ]
+            ]
+        )
+
+    status = await _client_with(handler).get_dns_publish_status("dom-1")
+    assert status.state == "failed"
+    assert status.failure_reason == "Cloudflare rejected the token"
+
+
+async def test_get_dns_publish_status_no_task_yet_is_pending() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _jmap_response([["x:Task/query", {"ids": []}, "c1"]])
+
+    status = await _client_with(handler).get_dns_publish_status("dom-1")
+    assert status.state == "pending"
+
+
+async def test_get_dns_publish_status_in_progress_is_pending() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        method = body["methodCalls"][0][0]
+        if method == "x:Task/query":
+            return _jmap_response([["x:Task/query", {"ids": ["task-1"]}, "c1"]])
+        return _jmap_response(
+            [["x:Task/get", {"list": [{"id": "task-1", "status": "scheduled"}]}, "c1"]]
+        )
+
+    status = await _client_with(handler).get_dns_publish_status("dom-1")
+    assert status.state == "pending"

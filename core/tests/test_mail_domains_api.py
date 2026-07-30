@@ -1,13 +1,72 @@
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ember.config import env
+from ember.mail import MailConnectionError
+from ember.mail.client import MailClient
 from ember.models import MailAccount, MailProvider
 
 SIGNUP_URL = "/api/auth/signup"
 INVITES_URL = "/api/invites"
 WORKSPACES_URL = "/api/workspaces"
+
+
+class FakeMailClient(MailClient):
+    """Minimal `MailClient` double for domain-provisioning tests — only
+    `ensure_dns_server`/`create_domain` are exercised here; every other
+    abstract method is an explicit stub, matching the other fakes in this
+    test suite (test_mail_accounts_api.py, test_mail_service.py)."""
+
+    def __init__(self, *, create_domain_error: Exception | None = None) -> None:
+        self._create_domain_error = create_domain_error
+        self.ensure_dns_server_calls: list[tuple[str, str]] = []
+        self.create_domain_calls: list[tuple[str, str | None]] = []
+
+    async def health_check(self) -> bool:
+        return True
+
+    async def ensure_dns_server(self, secret: str, *, description: str) -> str:
+        self.ensure_dns_server_calls.append((secret, description))
+        return "dns-server-1"
+
+    async def create_domain(self, domain: str, *, dns_server_id: str | None = None) -> str:
+        self.create_domain_calls.append((domain, dns_server_id))
+        if self._create_domain_error is not None:
+            raise self._create_domain_error
+        return "stalwart-domain-1"
+
+    async def create_account(self, address: str, password: str, *, quota_bytes: int | None = None):
+        raise NotImplementedError
+
+    async def set_password(self, account_id: str, password: str) -> None:
+        raise NotImplementedError
+
+    async def delete_account(self, account_id: str) -> None:
+        raise NotImplementedError
+
+    async def send_message(self, **kwargs):
+        raise NotImplementedError
+
+    async def list_mailboxes(self, *, account_id: str):
+        raise NotImplementedError
+
+    async def list_messages(self, *, account_id: str, mailbox_role: str, limit: int = 50, collapse_threads: bool = True):
+        raise NotImplementedError
+
+    async def get_message(self, *, account_id: str, message_id: str):
+        raise NotImplementedError
+
+    async def update_message(self, *, account_id: str, message_id: str, patch):
+        raise NotImplementedError
+
+    async def mark_mailbox_read(self, *, account_id: str, mailbox_role: str) -> int:
+        raise NotImplementedError
+
+    async def list_thread_messages(self, *, account_id: str, thread_id: str):
+        raise NotImplementedError
 
 
 def _signup_payload(**overrides: object) -> dict:
@@ -406,3 +465,142 @@ async def test_delete_domain_with_accounts_returns_409(
     )
 
     assert response.status_code == 409
+
+
+# --- automatic provisioning (Cloudflare/Stalwart) --------------------------
+
+
+def _patch_mail_client(monkeypatch: pytest.MonkeyPatch, mail_client: MailClient | None) -> None:
+    monkeypatch.setattr("ember.routers.mail.get_mail_client", lambda: mail_client)
+
+
+def _patch_verify_dns_defer(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """Swap `verify_domain_dns.defer_async` for a recorder — no Procrastinate
+    schema exists against the test DB (docs/background-jobs.md: it's installed
+    by an Alembic migration, not the SQLAlchemy `create_all` these tests use),
+    so actually deferring would fail for reasons unrelated to what these tests
+    check."""
+    calls: list[dict] = []
+
+    async def fake_defer_async(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr("ember.routers.mail.verify_domain_dns.defer_async", fake_defer_async)
+    return calls
+
+
+async def test_create_domain_without_mail_configured_stays_ember_only(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_mail_client(monkeypatch, None)
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+
+    response = await client.post(
+        _domains_url(workspace_id), headers=_auth_header(token), json={"domain": "example.com"}
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "pending"
+    assert body["stalwart_domain_id"] is None
+    assert body["provisioning_error"] is None
+
+
+async def test_create_domain_with_cloudflare_configured_provisions_on_mail_server(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(env, "CLOUDFLARE_API_TOKEN", "cf-token")
+    mail_client = FakeMailClient()
+    _patch_mail_client(monkeypatch, mail_client)
+    deferred = _patch_verify_dns_defer(monkeypatch)
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+
+    response = await client.post(
+        _domains_url(workspace_id), headers=_auth_header(token), json={"domain": "example.com"}
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["stalwart_domain_id"] == "stalwart-domain-1"
+    assert body["provisioning_error"] is None
+    assert mail_client.ensure_dns_server_calls == [("cf-token", "ember-cloudflare")]
+    assert mail_client.create_domain_calls == [("example.com", "dns-server-1")]
+    assert deferred == [{"domain_id": body["id"]}]
+
+
+async def test_create_domain_provisioning_failure_still_returns_201_with_error(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(env, "CLOUDFLARE_API_TOKEN", "cf-token")
+    mail_client = FakeMailClient(create_domain_error=MailConnectionError("unreachable"))
+    _patch_mail_client(monkeypatch, mail_client)
+    deferred = _patch_verify_dns_defer(monkeypatch)
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+
+    response = await client.post(
+        _domains_url(workspace_id), headers=_auth_header(token), json={"domain": "example.com"}
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "pending"
+    assert body["stalwart_domain_id"] is None
+    assert body["provisioning_error"] == "unreachable"
+    assert deferred == []  # never queue verification for a provision that never succeeded
+
+
+async def test_manual_retry_provisions_a_previously_unconfigured_domain(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Domain created before Cloudflare was configured (the common real-world
+    # sequence: add the domain, then set CLOUDFLARE_API_TOKEN, then retry).
+    _patch_mail_client(monkeypatch, None)
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    created = await client.post(
+        _domains_url(workspace_id), headers=_auth_header(token), json={"domain": "example.com"}
+    )
+    domain_id = created.json()["id"]
+
+    monkeypatch.setitem(env, "CLOUDFLARE_API_TOKEN", "cf-token")
+    mail_client = FakeMailClient()
+    _patch_mail_client(monkeypatch, mail_client)
+    _patch_verify_dns_defer(monkeypatch)
+
+    response = await client.post(
+        f"{_domains_url(workspace_id, domain_id)}/provision", headers=_auth_header(token)
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stalwart_domain_id"] == "stalwart-domain-1"
+    assert mail_client.create_domain_calls == [("example.com", "dns-server-1")]
+
+
+async def test_manual_retry_requires_auth(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    created = await client.post(
+        _domains_url(workspace_id), headers=_auth_header(token), json={"domain": "example.com"}
+    )
+    domain_id = created.json()["id"]
+
+    response = await client.post(f"{_domains_url(workspace_id, domain_id)}/provision")
+
+    assert response.status_code == 401
+
+
+async def test_manual_retry_nonexistent_domain_returns_404(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_mail_client(monkeypatch, None)
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+
+    response = await client.post(
+        f"{_domains_url(workspace_id, str(uuid.uuid4()))}/provision", headers=_auth_header(token)
+    )
+
+    assert response.status_code == 404

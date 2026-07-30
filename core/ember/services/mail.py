@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ember.config import env
 from ember.mail import (
     MailClient,
     MailSender,
@@ -102,6 +103,41 @@ async def create_mail_domain(
     except IntegrityError as exc:
         await session.rollback()
         raise DomainAlreadyExistsError(data.domain) from exc
+    return domain
+
+
+async def provision_mail_domain(
+    session: AsyncSession, domain: MailDomain, mail_client: MailClient
+) -> MailDomain:
+    """Mirror `domain` onto the mail server: create its Domain object there
+    (idempotent — safe to call again for an already-provisioned domain), with
+    automatic DNS management pointed at Cloudflare when `CLOUDFLARE_API_TOKEN`
+    is configured. This is what closes the gap the model docstring calls out
+    (`models/mail_domain.py`): DNS/DKIM stop being an operator runbook.
+
+    Never raises `MailClientError` — a failure here (auth, connection,
+    timeout, mail server rejection) is recorded on `domain.provisioning_error`
+    for the UI instead, so a Cloudflare/Stalwart hiccup doesn't turn "add a
+    domain" into a 502. The caller decides whether/when to retry.
+    """
+    if not env["CLOUDFLARE_API_TOKEN"]:
+        return domain
+
+    try:
+        dns_server_id = await mail_client.ensure_dns_server(
+            env["CLOUDFLARE_API_TOKEN"], description="ember-cloudflare"
+        )
+        stalwart_domain_id = await mail_client.create_domain(
+            domain.domain, dns_server_id=dns_server_id
+        )
+    except MailClientError as exc:
+        domain.provisioning_error = str(exc)
+        await session.flush()
+        return domain
+
+    domain.stalwart_domain_id = stalwart_domain_id
+    domain.provisioning_error = None
+    await session.flush()
     return domain
 
 

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ember.db import get_db
 from ember.dependencies import get_current_user
+from ember.jobs.tasks import verify_domain_dns
 from ember.mail import (
     MailAccountAlreadyExistsError,
     MailAuthenticationError,
@@ -60,6 +61,7 @@ from ember.services.mail import (
     list_workspace_messages,
     list_workspace_thread_previews,
     mark_workspace_folder_read,
+    provision_mail_domain,
     register_mail_account,
     send_mail_message,
     update_workspace_message,
@@ -225,6 +227,20 @@ def _thread_preview_response(item) -> MailThreadPreviewResponse:
     )
 
 
+async def _provision_and_defer_verification(db: AsyncSession, domain: MailDomain) -> MailDomain:
+    """Best-effort mirror of `domain` onto the mail server (no-op when mail or
+    Cloudflare isn't configured — see `provision_mail_domain`), then queue
+    `verify_domain_dns` to flip the row to `ACTIVE` once DNS actually
+    publishes. Called on domain creation and from the manual retry endpoint."""
+    mail_client = get_mail_client()
+    if mail_client is None:
+        return domain
+    domain = await provision_mail_domain(db, domain, mail_client)
+    if domain.stalwart_domain_id and not domain.provisioning_error:
+        await verify_domain_dns.defer_async(domain_id=str(domain.id))
+    return domain
+
+
 @router.post("/{workspace_id}/mail/domains", status_code=status.HTTP_201_CREATED)
 async def create_mail_domain_route(
     workspace_id: uuid.UUID,
@@ -237,6 +253,23 @@ async def create_mail_domain_route(
         domain = await create_mail_domain(db, workspace_id, data)
     except DomainAlreadyExistsError as exc:
         raise _ALREADY_EXISTS from exc
+    domain = await _provision_and_defer_verification(db, domain)
+    return MailDomainResponse.model_validate(domain)
+
+
+@router.post("/{workspace_id}/mail/domains/{domain_id}/provision")
+async def provision_mail_domain_route(
+    workspace_id: uuid.UUID,
+    domain_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MailDomainResponse:
+    """Manual retry for a domain whose automatic mail-server provisioning
+    failed (`provisioning_error` set) or was never attempted (e.g. Cloudflare
+    got configured after the domain was created)."""
+    await _require_membership(db, workspace_id, current_user.id)
+    domain = await _get_domain_or_404(db, workspace_id, domain_id)
+    domain = await _provision_and_defer_verification(db, domain)
     return MailDomainResponse.model_validate(domain)
 
 

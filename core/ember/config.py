@@ -34,6 +34,12 @@ env = venvalid(
         "CALENDARIFIC_API_KEY": str_(default=""),
         "HOLIDAY_HTTP_TIMEOUT_SECONDS": int_(default=15),
         "CLOUDINARY_URL": str_(default=""),
+        # Lets Ember create the Stalwart Domain with automatic DNS management
+        # pointed at Cloudflare (docs/rfc/mail-module.md §4's "operator
+        # runbook" for MX/SPF/DKIM/DMARC becomes an API call instead). Empty
+        # means domains stay Ember-only records — Stalwart never mirrors them,
+        # same as before this existed.
+        "CLOUDFLARE_API_TOKEN": str_(default=""),
     }
 )
 
@@ -69,6 +75,13 @@ def mail_enabled() -> bool:
     """Whether a mail server is configured. Lets callers avoid importing `env`
     directly and keeps the on/off decision in one place."""
     return env["MAIL_ENABLED"]
+
+
+def cloudflare_dns_configured() -> bool:
+    """Whether Stalwart should be given a Cloudflare DnsServer for new
+    domains. Mirrors `mail_enabled()`'s role of centralizing the on/off
+    decision."""
+    return bool(env["CLOUDFLARE_API_TOKEN"])
 
 
 def psycopg_dsn() -> str:

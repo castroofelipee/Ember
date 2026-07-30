@@ -56,6 +56,8 @@ class MailDomainResponse(BaseModel):
     workspace_id: uuid.UUID
     domain: str
     status: MailDomainStatus
+    stalwart_domain_id: str | None = None
+    provisioning_error: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

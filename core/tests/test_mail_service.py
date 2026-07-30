@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ember.config import env
 from ember.mail import MailAccountAlreadyExistsError, MailClientError, MailConnectionError
 from ember.mail.client import MailAccount as ProvisionedAccount
 from ember.mail.client import MailMessageDetail, MailMessageSummary, MailboxInfo
@@ -47,6 +48,7 @@ from ember.services.mail import (
     get_mail_domain,
     list_mail_accounts,
     list_mail_domains,
+    provision_mail_domain,
     register_mail_account,
     update_mail_account,
 )
@@ -59,16 +61,37 @@ class FakeMailClient(MailClient):
     can assert on the compensating-delete behavior."""
 
     def __init__(
-        self, *, create_error: Exception | None = None, delete_error: Exception | None = None
+        self,
+        *,
+        create_error: Exception | None = None,
+        delete_error: Exception | None = None,
+        ensure_dns_server_error: Exception | None = None,
+        create_domain_error: Exception | None = None,
     ) -> None:
         self._create_error = create_error
         self._delete_error = delete_error
+        self._ensure_dns_server_error = ensure_dns_server_error
+        self._create_domain_error = create_domain_error
         self.create_calls: list[tuple[str, str]] = []
         self.delete_calls: list[str] = []
+        self.ensure_dns_server_calls: list[tuple[str, str]] = []
+        self.create_domain_calls: list[tuple[str, str | None]] = []
         self._next_id = 1
 
     async def health_check(self) -> bool:
         return True
+
+    async def ensure_dns_server(self, secret: str, *, description: str) -> str:
+        self.ensure_dns_server_calls.append((secret, description))
+        if self._ensure_dns_server_error is not None:
+            raise self._ensure_dns_server_error
+        return "dns-server-1"
+
+    async def create_domain(self, domain: str, *, dns_server_id: str | None = None) -> str:
+        self.create_domain_calls.append((domain, dns_server_id))
+        if self._create_domain_error is not None:
+            raise self._create_domain_error
+        return "stalwart-domain-1"
 
     async def create_account(
         self, address: str, password: str, *, quota_bytes: int | None = None
@@ -287,6 +310,75 @@ async def test_list_mail_domains_scoped_to_workspace(db_session: AsyncSession) -
 
     listed = await list_mail_domains(db_session, ws_a.id)
     assert [d.domain for d in listed] == ["a.com"]
+
+
+# --- provision_mail_domain -------------------------------------------------
+
+
+async def test_provision_mail_domain_noop_when_cloudflare_not_configured(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(env, "CLOUDFLARE_API_TOKEN", "")
+    _, workspace = await _workspace(db_session)
+    domain = await _domain(db_session, workspace)
+    mail_client = FakeMailClient()
+
+    result = await provision_mail_domain(db_session, domain, mail_client)
+
+    assert result.stalwart_domain_id is None
+    assert mail_client.ensure_dns_server_calls == []
+    assert mail_client.create_domain_calls == []
+
+
+async def test_provision_mail_domain_creates_dns_server_and_domain(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(env, "CLOUDFLARE_API_TOKEN", "cf-token")
+    _, workspace = await _workspace(db_session)
+    domain = await _domain(db_session, workspace)
+    mail_client = FakeMailClient()
+
+    result = await provision_mail_domain(db_session, domain, mail_client)
+
+    assert result.stalwart_domain_id == "stalwart-domain-1"
+    assert result.provisioning_error is None
+    assert mail_client.ensure_dns_server_calls == [("cf-token", "ember-cloudflare")]
+    assert mail_client.create_domain_calls == [(domain.domain, "dns-server-1")]
+
+
+async def test_provision_mail_domain_records_error_without_raising(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(env, "CLOUDFLARE_API_TOKEN", "cf-token")
+    _, workspace = await _workspace(db_session)
+    domain = await _domain(db_session, workspace)
+    mail_client = FakeMailClient(
+        create_domain_error=MailConnectionError("mail server unreachable")
+    )
+
+    result = await provision_mail_domain(db_session, domain, mail_client)
+
+    assert result.stalwart_domain_id is None
+    assert result.provisioning_error == "mail server unreachable"
+
+
+async def test_provision_mail_domain_clears_previous_error_on_retry(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(env, "CLOUDFLARE_API_TOKEN", "cf-token")
+    _, workspace = await _workspace(db_session)
+    domain = await _domain(db_session, workspace)
+    failing_client = FakeMailClient(
+        create_domain_error=MailConnectionError("mail server unreachable")
+    )
+    domain = await provision_mail_domain(db_session, domain, failing_client)
+    assert domain.provisioning_error is not None
+
+    working_client = FakeMailClient()
+    result = await provision_mail_domain(db_session, domain, working_client)
+
+    assert result.provisioning_error is None
+    assert result.stalwart_domain_id == "stalwart-domain-1"
 
 
 # --- MailAccount ----------------------------------------------------------
