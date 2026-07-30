@@ -181,6 +181,8 @@ export type MailDomain = {
   workspace_id: string;
   domain: string;
   status: MailDomainStatus;
+  stalwart_domain_id: string | null;
+  provisioning_error: string | null;
   created_at: string;
 };
 

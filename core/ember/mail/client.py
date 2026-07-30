@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Literal
 
 import httpx
 
@@ -68,6 +69,16 @@ class MailSendResult:
 class MailAddress:
     email: str
     name: str | None = None
+
+
+@dataclass(frozen=True)
+class DnsPublishStatus:
+    """Progress of a mail server's DNS-management task for one domain (Stalwart
+    publishes MX/SPF/DKIM/DMARC to the configured provider asynchronously;
+    `pending` means the caller should check again later)."""
+
+    state: Literal["pending", "completed", "failed"]
+    failure_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -145,6 +156,30 @@ class MailClient(ABC):
     @abstractmethod
     async def delete_account(self, account_id: str) -> None:
         """Permanently remove an account and its mailboxes."""
+
+    async def ensure_dns_server(self, secret: str, *, description: str) -> str:
+        """Return the id of a DNS-provider credential the mail server can use
+        to publish records automatically, creating it if none with this
+        `description` exists yet. Idempotent so callers can call it on every
+        domain provision without tracking the id themselves.
+
+        Not abstract (like `save_sent_message`): DNS automation is a
+        Stalwart-specific capability, not something every `MailClient`
+        backend need support."""
+        raise NotImplementedError
+
+    async def create_domain(self, domain: str, *, dns_server_id: str | None = None) -> str:
+        """Return the mail server's Domain id for `domain`, creating it (with
+        automatic DKIM key management, and automatic DNS publication through
+        `dns_server_id` when given) if it doesn't already exist. Idempotent:
+        calling this again for a domain that already exists just returns its
+        id."""
+        raise NotImplementedError
+
+    async def get_dns_publish_status(self, domain_id: str) -> DnsPublishStatus:
+        """Return the progress of the mail server's most recent DNS-management
+        task for `domain_id`."""
+        raise NotImplementedError
 
     @abstractmethod
     async def send_message(
@@ -460,6 +495,139 @@ class StalwartMailClient(MailClient):
                 f"Mail server response for x:Account/set had neither destroyed nor "
                 f"notDestroyed for {account_id!r}"
             )
+
+    async def ensure_dns_server(self, secret: str, *, description: str) -> str:
+        # No query-by-description filter is documented for x:DnsServer/query,
+        # so list every configured server (mirrors the ids:None "list all"
+        # idiom `_resolve_mailbox_ids_by_role` already uses) and match by the
+        # description this caller stamped it with.
+        get_body = {
+            "methodCalls": [["x:DnsServer/get", {"ids": None}, "c1"]],
+            "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],
+        }
+        arguments = self._unwrap_response(await self._call_jmap(get_body), "x:DnsServer/get")
+        for server in arguments.get("list") or []:
+            if server.get("description") == description:
+                return str(server["id"])
+
+        create_body = {
+            "methodCalls": [
+                [
+                    "x:DnsServer/set",
+                    {
+                        "create": {
+                            self._CREATE_KEY: {
+                                "@type": "Cloudflare",
+                                "secret": secret,
+                                "description": description,
+                            }
+                        }
+                    },
+                    "c1",
+                ]
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],
+        }
+        response_body = await self._call_jmap(create_body)
+        set_args = self._unwrap_response(response_body, "x:DnsServer/set")
+        not_created = set_args.get("notCreated") or {}
+        if self._CREATE_KEY in not_created:
+            error = not_created[self._CREATE_KEY]
+            raise MailClientError(
+                f"Mail server refused to create DNS server {description!r}: "
+                f"{error.get('type')} ({error.get('description', 'no description')})"
+            )
+        created = (set_args.get("created") or {}).get(self._CREATE_KEY)
+        if created is None:
+            raise MailClientError(
+                "Mail server response for x:DnsServer/set had neither created nor notCreated"
+            )
+        return str(created["id"])
+
+    async def create_domain(self, domain: str, *, dns_server_id: str | None = None) -> str:
+        try:
+            return await self._resolve_domain_id(domain)
+        except MailDomainNotProvisionedError:
+            pass
+
+        dns_management: dict = (
+            {"@type": "Automatic", "dnsServerId": dns_server_id}
+            if dns_server_id
+            else {"@type": "Manual"}
+        )
+        create_fields = {
+            "name": domain,
+            "dkimManagement": {"@type": "Automatic"},
+            "dnsManagement": dns_management,
+            "subAddressing": {"@type": "Enabled"},
+        }
+        body = {
+            "methodCalls": [
+                ["x:Domain/set", {"create": {self._CREATE_KEY: create_fields}}, "c1"]
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],
+        }
+        response_body = await self._call_jmap(body)
+        arguments = self._unwrap_response(response_body, "x:Domain/set")
+
+        not_created = arguments.get("notCreated") or {}
+        if self._CREATE_KEY in not_created:
+            error = not_created[self._CREATE_KEY]
+            raise MailClientError(
+                f"Mail server refused to create domain {domain!r}: "
+                f"{error.get('type')} ({error.get('description', 'no description')})"
+            )
+        created = (arguments.get("created") or {}).get(self._CREATE_KEY)
+        if created is None:
+            raise MailClientError(
+                f"Mail server response for x:Domain/set had neither created nor "
+                f"notCreated for {domain!r}"
+            )
+        return str(created["id"])
+
+    async def get_dns_publish_status(self, domain_id: str) -> DnsPublishStatus:
+        # The most recent DnsManagement task for this domain tells us whether
+        # Stalwart's last attempt to publish records to the DNS provider
+        # succeeded. Newest-first + limit 1 avoids paging through history.
+        query_body = {
+            "methodCalls": [
+                [
+                    "x:Task/query",
+                    {
+                        "filter": {"domainId": domain_id, "type": "DnsManagement"},
+                        "sort": [{"property": "createdAt", "isAscending": False}],
+                        "limit": 1,
+                    },
+                    "c1",
+                ]
+            ],
+            "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],
+        }
+        query_args = self._unwrap_response(await self._call_jmap(query_body), "x:Task/query")
+        ids = query_args.get("ids") or []
+        if not ids:
+            # No task recorded yet (e.g. domain was created with Manual DNS
+            # management, or the task hasn't been scheduled): nothing to
+            # report as failed, so treat it as still pending.
+            return DnsPublishStatus(state="pending")
+
+        get_body = {
+            "methodCalls": [["x:Task/get", {"ids": ids}, "c1"]],
+            "using": ["urn:ietf:params:jmap:core", "urn:stalwart:jmap"],
+        }
+        get_args = self._unwrap_response(await self._call_jmap(get_body), "x:Task/get")
+        tasks = get_args.get("list") or []
+        if not tasks:
+            return DnsPublishStatus(state="pending")
+
+        task = tasks[0]
+        status = str(task.get("status") or task.get("state") or "").lower()
+        if "fail" in status:
+            reason = task.get("failureReason") or task.get("error") or status
+            return DnsPublishStatus(state="failed", failure_reason=str(reason))
+        if status in ("completed", "succeeded", "done", "success"):
+            return DnsPublishStatus(state="completed")
+        return DnsPublishStatus(state="pending")
 
     async def _resolve_mailbox_ids_by_role(
         self, account_id: str, roles: Sequence[str]

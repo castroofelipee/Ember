@@ -2,7 +2,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, ForeignKey, Index, String, func
+from sqlalchemy import Enum, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ember.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -41,6 +41,16 @@ class MailDomain(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         default=MailDomainStatus.PENDING,
         server_default=MailDomainStatus.PENDING.value,
     )
+    # Stalwart's own Domain id, set once `provision_mail_domain` has created
+    # (or resolved) the matching Domain object there. None until then, or when
+    # no mail server is configured — this column is Ember's cache, not a
+    # second source of truth (Stalwart is always re-resolvable by name).
+    stalwart_domain_id: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    # Last error from attempting to provision this domain on the mail server
+    # (Stalwart Domain creation or DNS publication) — surfaced in the UI so a
+    # failure doesn't just look like a domain stuck "pending" forever. Cleared
+    # on the next successful attempt.
+    provisioning_error: Mapped[str | None] = mapped_column(Text(), nullable=True)
 
     accounts: Mapped[list["MailAccount"]] = relationship(
         back_populates="domain", cascade="all, delete-orphan"

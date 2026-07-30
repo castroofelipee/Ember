@@ -30,6 +30,17 @@ function domainsUrl(workspaceId: string, domainId?: string): string {
   return domainId ? `${base}/${domainId}` : base;
 }
 
+// Domains actively provisioning (a Stalwart Domain was created and DNS
+// publication is still being verified — see verify_domain_dns on the
+// backend) are worth polling for; ones with no mail server configured, or
+// that already failed/settled, aren't waiting on anything.
+function isProvisioning(domain: MailDomain): boolean {
+  return domain.status === "pending" && !!domain.stalwart_domain_id && !domain.provisioning_error;
+}
+
+const POLL_INTERVAL_MS = 3_000;
+const POLL_MAX_ATTEMPTS = 20;
+
 export function MailDomainsView() {
   const router = useRouter();
   const { workspaceId } = useParams<{ workspaceId: string }>();
@@ -46,6 +57,7 @@ export function MailDomainsView() {
   const [editError, setEditError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authStatus !== "ready") return;
@@ -67,6 +79,44 @@ export function MailDomainsView() {
       cancelled = true;
     };
   }, [authStatus, workspaceId]);
+
+  // While a domain is waiting on the background DNS-verification job, poll
+  // the list until it settles (active or errored) instead of leaving the
+  // "Configuring DNS…" hint stuck until the next manual refresh.
+  useEffect(() => {
+    if (status !== "ready" || !domains.some(isProvisioning)) return;
+
+    let attempts = 0;
+    const interval = setInterval(async () => {
+      attempts += 1;
+      const response = await apiFetch(domainsUrl(workspaceId));
+      if (response.ok) {
+        const latest: MailDomain[] = await response.json();
+        setDomains(latest);
+        if (!latest.some(isProvisioning)) {
+          clearInterval(interval);
+        }
+      }
+      if (attempts >= POLL_MAX_ATTEMPTS) {
+        clearInterval(interval);
+      }
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-derives `domains.some(isProvisioning)` each tick; keying off `domains` itself would restart the interval on every poll.
+  }, [status, workspaceId, domains.some(isProvisioning)]);
+
+  async function retryProvisioning(domainId: string) {
+    setRetryingId(domainId);
+    const response = await apiFetch(`${domainsUrl(workspaceId, domainId)}/provision`, {
+      method: "POST",
+    });
+    if (response.ok) {
+      const updated: MailDomain = await response.json();
+      setDomains((prev) => prev.map((d) => (d.id === domainId ? updated : d)));
+    }
+    setRetryingId(null);
+  }
 
   async function handleCreate(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -265,7 +315,23 @@ export function MailDomainsView() {
                           <span className={`mail-domain-status mail-domain-status--${domain.status}`}>
                             {domain.status}
                           </span>
+                          {isProvisioning(domain) && (
+                            <span className="mail-domain-hint">Configuring DNS…</span>
+                          )}
                         </div>
+                        {domain.provisioning_error && (
+                          <p className="form-error">
+                            {domain.provisioning_error}{" "}
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() => retryProvisioning(domain.id)}
+                              disabled={retryingId === domain.id}
+                            >
+                              {retryingId === domain.id ? "Retrying…" : "Retry"}
+                            </button>
+                          </p>
+                        )}
                         {rowError?.id === domain.id && (
                           <p className="form-error">{rowError.message}</p>
                         )}

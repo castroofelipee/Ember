@@ -1003,6 +1003,12 @@
   color: #cbd5e1;
 }
 
+.mail-domain-hint {
+  font-size: 0.75rem;
+  color: #a1a1a1;
+  white-space: nowrap;
+}
+
 .mail-domain-actions {
   display: flex;
   align-items: center;
