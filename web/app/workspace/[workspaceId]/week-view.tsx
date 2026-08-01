@@ -231,6 +231,7 @@ export function WeekView({
   const today = useMemo(() => new Date(), []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const suppressClickRef = useRef<string | null>(null);
+  const suppressSlotClickRef = useRef(false);
   const [now, setNow] = useState(() => new Date());
   const [dragging, setDragging] = useState<DragState | null>(null);
   const [resizing, setResizing] = useState<ResizeState | null>(null);
@@ -330,6 +331,7 @@ export function WeekView({
         if (!state || state.pointerId !== event.pointerId) return state;
         if (state.dragged) {
           suppressClickRef.current = state.eventKey;
+          suppressSlotClickRef.current = true;
           void onEventMove?.(state.event, state.previewStart, state.previewEnd);
         }
         return null;
@@ -383,6 +385,7 @@ export function WeekView({
         if (!state || state.pointerId !== event.pointerId) return state;
         if (state.resized) {
           suppressClickRef.current = state.eventKey;
+          suppressSlotClickRef.current = true;
           void onEventMove?.(state.event, state.previewStart, state.previewEnd);
         }
         return null;
@@ -534,6 +537,10 @@ export function WeekView({
                 key={day.toISOString()}
                 data-week-day-index={dayIndex}
                 onClick={(e) => {
+                  if (suppressSlotClickRef.current) {
+                    suppressSlotClickRef.current = false;
+                    return;
+                  }
                   if (!onSlotClick) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const hour = Math.max(
