@@ -104,12 +104,24 @@ class EventUpdateRequest(BaseModel):
 
     start_at: datetime
     end_at: datetime
+    # Optional so drag-and-drop can continue to update only the event's time.
+    title: str | None = Field(default=None, max_length=200)
     # Omitted entirely means "leave the color alone"; explicit null clears the
     # override so the event falls back to its calendar's color. Tell the two
     # apart with `"color" in request.model_fields_set`.
     color: str | None = None
     occurrence_start: datetime | None = None
     scope: EventUpdateScope = "this_only"
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("title must not be blank")
+        return stripped
 
     @field_validator("color")
     @classmethod

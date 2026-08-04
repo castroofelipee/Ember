@@ -73,16 +73,18 @@ def _clone_event(
     *,
     start_at: datetime,
     end_at: datetime,
+    title: str,
     color: str | None,
     with_recurrence: bool = False,
     count: int | None = None,
+    until: datetime | None = None,
     exdates: list[datetime] | None = None,
 ) -> Event:
     """A new row carrying `source`'s content at a new time — the detached
     occurrence, or the head of a split series when `with_recurrence`."""
     return Event(
         calendar_id=source.calendar_id,
-        title=source.title,
+        title=title,
         description=source.description,
         location=source.location,
         start_at=start_at,
@@ -94,7 +96,7 @@ def _clone_event(
         recurrence_interval=source.recurrence_interval if with_recurrence else 1,
         recurrence_by_weekday=source.recurrence_by_weekday if with_recurrence else None,
         recurrence_count=count if with_recurrence else None,
-        recurrence_until=source.recurrence_until if with_recurrence else None,
+        recurrence_until=until if with_recurrence else None,
         recurrence_exdates=exdates if with_recurrence else None,
     )
 
@@ -209,8 +211,10 @@ async def update_event(session: AsyncSession, event: Event, data: EventUpdateReq
     which detaches the dragged occurrence the way Google Calendar does."""
     # An omitted color leaves the override untouched; an explicit null clears it.
     color = data.color if "color" in data.model_fields_set else event.color
+    title = data.title if data.title is not None else event.title
 
     if event.recurrence_freq is None:
+        event.title = title
         event.start_at = data.start_at
         event.end_at = data.end_at
         event.color = color
@@ -228,6 +232,7 @@ async def update_event(session: AsyncSession, event: Event, data: EventUpdateReq
     ):
         event.start_at = event.start_at + delta
         event.end_at = event.start_at + duration
+        event.title = title
         if event.recurrence_exdates:
             event.recurrence_exdates = [date + delta for date in event.recurrence_exdates]
         event.color = color
@@ -242,14 +247,20 @@ async def update_event(session: AsyncSession, event: Event, data: EventUpdateReq
             for date in (event.recurrence_exdates or [])
             if date >= occurrence_start
         ]
+        # Preserve the tail's original end before truncating the old series.
+        # Otherwise open/date-bounded series inherit the old master's new
+        # cutoff (just before occurrence_start) and expand to zero events.
+        tail_until = event.recurrence_until
         remaining = _truncate_series_before(event, occurrence_start)
         tail = _clone_event(
             event,
             start_at=data.start_at,
             end_at=data.end_at,
+            title=title,
             color=color,
             with_recurrence=True,
             count=remaining,
+            until=tail_until,
             exdates=carried or None,
         )
         session.add(tail)
@@ -258,7 +269,7 @@ async def update_event(session: AsyncSession, event: Event, data: EventUpdateReq
 
     _detach_occurrence(event, occurrence_start)
     detached = _clone_event(
-        event, start_at=data.start_at, end_at=data.end_at, color=color
+        event, start_at=data.start_at, end_at=data.end_at, title=title, color=color
     )
     session.add(detached)
     await session.flush()

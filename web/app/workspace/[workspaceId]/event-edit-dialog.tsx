@@ -12,6 +12,7 @@ import type { WeekEvent } from "./week-view";
 export type EventUpdateScope = "this_only" | "this_and_future" | "all";
 
 export type EventEdit = {
+  title: string;
   start: Date;
   end: Date;
   /** null clears the override, so the event falls back to its calendar color. */
@@ -40,6 +41,7 @@ function timeValue(date: Date): string {
 /** Retime and repaint an existing event. Recurring events also ask how far the
  * change reaches; the series itself is edited from the create dialog. */
 export function EventEditDialog({ event, saving, onClose, onSave }: EventEditDialogProps) {
+  const [title, setTitle] = useState(event.title);
   const [startDate, setStartDate] = useState(dateValue(event.start));
   const [startTime, setStartTime] = useState(timeValue(event.start));
   const [endDate, setEndDate] = useState(dateValue(event.end));
@@ -52,6 +54,11 @@ export function EventEditDialog({ event, saving, onClose, onSave }: EventEditDia
 
   function handleSubmit(formEvent: SubmitEvent<HTMLFormElement>) {
     formEvent.preventDefault();
+
+    if (!title.trim()) {
+      setError("Add a title for your event.");
+      return;
+    }
 
     // All-day events span midnight to midnight after the end date, the same
     // shape the create dialog sends.
@@ -72,7 +79,7 @@ export function EventEditDialog({ event, saving, onClose, onSave }: EventEditDia
     }
 
     setError(null);
-    onSave({ start, end, color, scope });
+    onSave({ title: title.trim(), start, end, color, scope });
   }
 
   return (
@@ -92,7 +99,14 @@ export function EventEditDialog({ event, saving, onClose, onSave }: EventEditDia
         </div>
 
         <form className="event-dialog-form" onSubmit={handleSubmit}>
-          <p className="event-dialog-title-static">{event.title}</p>
+          <input
+            className="event-dialog-title-input"
+            aria-label="Event title"
+            placeholder="Add title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            autoFocus
+          />
 
           <div className="event-dialog-times">
             <input
