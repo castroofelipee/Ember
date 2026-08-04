@@ -17,6 +17,9 @@ env = venvalid(
         "JWT_ACCESS_TOKEN_TTL_MINUTES": int_(default=15),
         "REFRESH_TOKEN_TTL_DAYS": int_(default=30),
         "INVITE_CODE_TTL_DAYS": int_(default=7),
+        # Allows the initial account bootstrap, then can be turned off to close
+        # registration at both the page and API levels.
+        "SIGNUP_ENABLED": bool_(default=True),
         # Mail module (docs/rfc/mail-module.md). Ember never speaks SMTP/IMAP
         # itself — it delegates to an external mail server (Stalwart) and talks
         # to its management API. Disabled by default: no mail server is required

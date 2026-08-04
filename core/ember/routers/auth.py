@@ -43,6 +43,12 @@ async def register(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> SignupResponse:
+    if not env["SIGNUP_ENABLED"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account registration is disabled.",
+        )
+
     try:
         user, access_token, refresh_token = await signup(
             db,
