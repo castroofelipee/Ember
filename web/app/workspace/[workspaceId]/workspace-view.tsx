@@ -173,6 +173,7 @@ export function WorkspaceView() {
         const response = await apiFetch(`/api/events/${event.id}`, {
           method: "PATCH",
           body: JSON.stringify({
+            title: edit.title,
             start_at: edit.start.toISOString(),
             end_at: edit.end.toISOString(),
             color: edit.color,

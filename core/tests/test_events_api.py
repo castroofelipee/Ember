@@ -830,6 +830,93 @@ async def test_update_recurring_event_this_and_future_splits_series(
     assert [event["color"] for event in body] == [None, None, "#ea580c", "#ea580c"]
 
 
+async def test_update_open_recurring_event_this_and_future_keeps_tail_visible(
+    client: AsyncClient,
+) -> None:
+    token = await _signup(client)
+    workspace_id, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(recurrence={"freq": "DAILY"}),
+    )
+    event_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/api/events/{event_id}",
+        headers=_auth_header(token),
+        json={
+            "title": "Afternoon standup",
+            "start_at": "2026-07-03T14:00:00+00:00",
+            "end_at": "2026-07-03T15:00:00+00:00",
+            "occurrence_start": "2026-07-03T09:00:00+00:00",
+            "scope": "this_and_future",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Afternoon standup"
+    assert response.json()["recurrence"]["until"] is None
+
+    listed = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/events",
+        headers=_auth_header(token),
+        params={"start": "2026-07-01T00:00:00+00:00", "end": "2026-07-06T00:00:00+00:00"},
+    )
+    body = listed.json()
+    assert [event["title"] for event in body] == [
+        "Standup",
+        "Standup",
+        "Afternoon standup",
+        "Afternoon standup",
+        "Afternoon standup",
+    ]
+    assert [datetime.fromisoformat(event["start_at"]) for event in body] == [
+        datetime.fromisoformat("2026-07-01T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-02T09:00:00+00:00"),
+        datetime.fromisoformat("2026-07-03T14:00:00+00:00"),
+        datetime.fromisoformat("2026-07-04T14:00:00+00:00"),
+        datetime.fromisoformat("2026-07-05T14:00:00+00:00"),
+    ]
+
+
+async def test_update_one_off_event_changes_title(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(),
+    )
+
+    response = await client.patch(
+        f"/api/events/{created.json()['id']}",
+        headers=_auth_header(token),
+        json={"title": "Planning", "start_at": START, "end_at": END},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "Planning"
+
+
+async def test_update_event_rejects_blank_title(client: AsyncClient) -> None:
+    token = await _signup(client)
+    _, calendar_id = await _make_calendar(client, token)
+    created = await client.post(
+        f"/api/calendars/{calendar_id}/events",
+        headers=_auth_header(token),
+        json=_event_payload(),
+    )
+
+    response = await client.patch(
+        f"/api/events/{created.json()['id']}",
+        headers=_auth_header(token),
+        json={"title": "   ", "start_at": START, "end_at": END},
+    )
+
+    assert response.status_code == 422
+
+
 async def test_update_recurring_event_this_only_recolors_one_occurrence(
     client: AsyncClient,
 ) -> None:
