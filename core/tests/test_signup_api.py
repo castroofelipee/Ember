@@ -2,6 +2,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ember.config import env
 from ember.models import Credential, Session, User
 
 REGISTER_URL = "/api/auth/signup"
@@ -36,6 +37,18 @@ async def test_register_happy_path_returns_201(client: AsyncClient) -> None:
     assert body["display_name"] == "Ada Lovelace"
     assert "id" in body
     assert "created_at" in body
+
+
+async def test_register_returns_403_when_signup_is_disabled(
+    client: AsyncClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setitem(env, "SIGNUP_ENABLED", False)
+
+    response = await client.post(REGISTER_URL, json=_payload())
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Account registration is disabled."
 
 
 async def test_register_response_never_leaks_password(client: AsyncClient) -> None:

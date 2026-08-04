@@ -2,7 +2,10 @@
 
 import { useState, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
+import { AtSignIcon, LockKeyholeIcon } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { adoptAccessToken } from "@/lib/auth-client";
 
 export function LoginForm() {
@@ -49,40 +52,60 @@ export function LoginForm() {
   }
 
   return (
-    <form className="auth-form" onSubmit={handleSubmit}>
-      <div className="form-field">
-        <label className="form-label" htmlFor="email">
+    <form className="space-y-5" onSubmit={handleSubmit}>
+      <div className="space-y-2">
+        <label className="text-sm font-medium" htmlFor="email">
           Email
         </label>
-        <input
-          className="form-input"
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-        />
+        <div className="relative">
+          <AtSignIcon
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            className="h-11 pl-10"
+            id="email"
+            name="email"
+            type="email"
+            placeholder="you@example.com"
+            autoComplete="email"
+            disabled={pending}
+            required
+          />
+        </div>
       </div>
 
-      <div className="form-field">
-        <label className="form-label" htmlFor="password">
+      <div className="space-y-2">
+        <label className="text-sm font-medium" htmlFor="password">
           Password
         </label>
-        <input
-          className="form-input"
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-        />
+        <div className="relative">
+          <LockKeyholeIcon
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            className="h-11 pl-10"
+            id="password"
+            name="password"
+            type="password"
+            placeholder="Enter your password"
+            autoComplete="current-password"
+            disabled={pending}
+            required
+          />
+        </div>
       </div>
 
-      {errorMessage && <p className="form-error form-error--summary">{errorMessage}</p>}
+      {errorMessage && (
+        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
+          {errorMessage}
+        </p>
+      )}
 
-      <button className="button-primary" type="submit" disabled={pending}>
+      <Button className="h-11 w-full" type="submit" disabled={pending}>
         {pending ? "Logging in…" : "Log in"}
-      </button>
+      </Button>
     </form>
   );
 }
