@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
 export default function Home() {
-  redirect("/login");
+  // Let the authenticated route restore the session from the refresh cookie.
+  // Its auth guard sends visitors without a valid session back to /login.
+  redirect("/calendars");
 }
