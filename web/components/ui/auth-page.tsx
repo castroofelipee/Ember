@@ -1,8 +1,5 @@
-"use client";
-
 import type { ReactNode } from "react";
 import Image from "next/image";
-import { motion } from "framer-motion";
 
 type AuthPageProps = {
   children: ReactNode;
@@ -89,19 +86,12 @@ function FloatingPaths({ position }: { position: number }) {
     <div className="pointer-events-none absolute inset-0 text-violet-300/60">
       <svg className="h-full w-full" viewBox="0 0 696 316" fill="none" aria-hidden="true">
         {paths.map((path) => (
-          <motion.path
+          <path
             key={path.id}
             d={path.d}
             stroke="currentColor"
             strokeWidth={path.width}
             strokeOpacity={0.08 + path.id * 0.012}
-            initial={{ pathLength: 0.3, opacity: 0.35 }}
-            animate={{ pathLength: 1, opacity: [0.2, 0.5, 0.2], pathOffset: [0, 1, 0] }}
-            transition={{
-              duration: 20 + (path.id % 10),
-              repeat: Number.POSITIVE_INFINITY,
-              ease: "linear",
-            }}
           />
         ))}
       </svg>

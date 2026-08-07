@@ -1,17 +1,38 @@
 "use client";
 
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AtSignIcon, LockKeyholeIcon } from "lucide-react";
+import { AtSignIcon, EyeIcon, EyeOffIcon, LockKeyholeIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { adoptAccessToken } from "@/lib/auth-client";
+import { adoptAccessToken, getAccessToken } from "@/lib/auth-client";
 
 export function LoginForm() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // Warm the destination while checking the existing httpOnly refresh
+    // cookie. A valid session should never require another password entry.
+    router.prefetch("/calendars");
+    getAccessToken()
+      .then(() => {
+        if (!cancelled) router.replace("/calendars");
+      })
+      .catch(() => {
+        // No session (or a temporary network failure): keep the login form
+        // usable. The submit path reports connectivity errors explicitly.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -34,7 +55,7 @@ export function LoginForm() {
       if (response.status === 200) {
         const body = await response.json();
         adoptAccessToken(body.access_token as string);
-        router.push("/calendars");
+        router.replace("/calendars");
         return;
       }
 
@@ -85,15 +106,29 @@ export function LoginForm() {
             aria-hidden="true"
           />
           <Input
-            className="h-11 pl-10"
+            className="h-11 px-10"
             id="password"
             name="password"
-            type="password"
+            type={showPassword ? "text" : "password"}
             placeholder="Enter your password"
             autoComplete="current-password"
             disabled={pending}
             required
           />
+          <button
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            type="button"
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-pressed={showPassword}
+            onClick={() => setShowPassword((visible) => !visible)}
+            disabled={pending}
+          >
+            {showPassword ? (
+              <EyeOffIcon className="size-4" aria-hidden="true" />
+            ) : (
+              <EyeIcon className="size-4" aria-hidden="true" />
+            )}
+          </button>
         </div>
       </div>
 
