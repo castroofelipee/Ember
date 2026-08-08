@@ -1811,7 +1811,9 @@
   min-width: 0;
   min-height: 0;
   padding: 1.25rem;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .knowledge-alert {
@@ -1974,8 +1976,11 @@
 
 .knowledge-board {
   display: flex;
+  flex: 1;
+  min-height: 0;
   gap: 0.85rem;
   overflow-x: auto;
+  overflow-y: hidden;
   padding-bottom: 0.75rem;
 }
 
@@ -2064,7 +2069,8 @@
 
 .knowledge-column {
   flex: 1 0 17rem;
-  min-height: calc(100dvh - 8.5rem);
+  min-height: 0;
+  height: 100%;
   border: 1px solid #282828;
   border-radius: 0.65rem;
   background: #181818;
@@ -2245,8 +2251,12 @@
 
 .knowledge-card-list {
   display: flex;
+  flex: 1;
+  min-height: 0;
   flex-direction: column;
   gap: 0.6rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.75rem;
 }
 
