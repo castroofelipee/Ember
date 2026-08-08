@@ -5,6 +5,15 @@ export type Workspace = {
   created_at: string;
 };
 
+export type WorkspaceMember = {
+  id: string;
+  user_id: string;
+  display_name: string;
+  email: string;
+  avatar_url: string | null;
+  role: "owner" | "member";
+};
+
 export type Calendar = {
   id: string;
   workspace_id: string;
