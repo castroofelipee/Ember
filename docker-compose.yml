@@ -25,6 +25,16 @@ services:
       # Optional: Stalwart Domain creation gets automatic DNS management
       # pointed at this Cloudflare account (see core/.env.example).
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      # GitHub integration (docs/rfc/github-integration.md). Off unless all
+      # three are set. Not passed to `worker`: no background jobs touch GitHub.
+      GITHUB_OAUTH_CLIENT_ID: ${GITHUB_OAUTH_CLIENT_ID:-}
+      GITHUB_OAUTH_CLIENT_SECRET: ${GITHUB_OAUTH_CLIENT_SECRET:-}
+      GITHUB_TOKEN_ENCRYPTION_KEY: ${GITHUB_TOKEN_ENCRYPTION_KEY:-}
+      GITHUB_API_URL: ${GITHUB_API_URL:-https://api.github.com}
+      GITHUB_OAUTH_BASE_URL: ${GITHUB_OAUTH_BASE_URL:-https://github.com}
+      GITHUB_HTTP_TIMEOUT_SECONDS: ${GITHUB_HTTP_TIMEOUT_SECONDS:-15}
+      # Where the OAuth callback sends the browser back to.
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:6000}
     expose:
       - "9000"
     restart: unless-stopped
