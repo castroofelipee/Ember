@@ -13,6 +13,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CalendarDays,
+  ChevronLeft,
   ChevronDown,
   ChevronRight,
   CheckCircle2,
@@ -121,6 +122,7 @@ async function responseError(response: Response, fallback: string): Promise<stri
 }
 
 const SIDEBAR_STORAGE_KEY = "ember:boards:sidebar";
+const COLLAPSED_COLUMNS_STORAGE_KEY = "ember:boards:collapsed-columns";
 
 // The sidebar's state doubles as the user's default: whatever it is when they
 // leave is what they get on the next visit. It lives in a module store rather
@@ -179,6 +181,72 @@ function setSidebarOpen(open: boolean): void {
     // The toggle still works for this session; only the default is not kept.
   }
   for (const listener of sidebarListeners) listener();
+}
+
+const collapsedColumnListeners = new Set<() => void>();
+let collapsedColumnsSnapshot = "{}";
+let collapsedColumnsRead = false;
+
+function getCollapsedColumnsSnapshot(): string {
+  if (collapsedColumnsRead) return collapsedColumnsSnapshot;
+  try {
+    collapsedColumnsSnapshot = localStorage.getItem(COLLAPSED_COLUMNS_STORAGE_KEY) ?? "{}";
+  } catch {
+    collapsedColumnsSnapshot = "{}";
+  }
+  collapsedColumnsRead = true;
+  return collapsedColumnsSnapshot;
+}
+
+function getCollapsedColumnsServerSnapshot(): string {
+  return "{}";
+}
+
+function subscribeCollapsedColumns(listener: () => void): () => void {
+  collapsedColumnListeners.add(listener);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== COLLAPSED_COLUMNS_STORAGE_KEY) return;
+    collapsedColumnsSnapshot = event.newValue ?? "{}";
+    collapsedColumnsRead = true;
+    listener();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    collapsedColumnListeners.delete(listener);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function readCollapsedColumns(snapshot: string, boardId: string): Set<string> {
+  try {
+    const stored = JSON.parse(snapshot) as Record<string, unknown>;
+    const columnIds = stored[boardId];
+    return new Set(Array.isArray(columnIds) ? columnIds.filter((id): id is string => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function setColumnCollapsed(boardId: string, columnId: string, collapsed: boolean): void {
+  let stored: Record<string, string[]> = {};
+  try {
+    stored = JSON.parse(getCollapsedColumnsSnapshot()) as Record<string, string[]>;
+  } catch {
+    // Replace malformed local preferences with a clean record.
+  }
+  const columnIds = new Set(Array.isArray(stored[boardId]) ? stored[boardId] : []);
+  if (collapsed) columnIds.add(columnId);
+  else columnIds.delete(columnId);
+  if (columnIds.size > 0) stored[boardId] = [...columnIds];
+  else delete stored[boardId];
+  collapsedColumnsSnapshot = JSON.stringify(stored);
+  collapsedColumnsRead = true;
+  try {
+    localStorage.setItem(COLLAPSED_COLUMNS_STORAGE_KEY, collapsedColumnsSnapshot);
+  } catch {
+    // The module snapshot keeps the interaction working for this session.
+  }
+  for (const listener of collapsedColumnListeners) listener();
 }
 
 async function jsonRequest<T>(
@@ -1281,6 +1349,16 @@ function BoardPanel({
   members: WorkspaceMember[];
   onOpenSettings: (tab: "workflow" | "members") => void;
 }) {
+  const collapsedSnapshot = useSyncExternalStore(
+    subscribeCollapsedColumns,
+    getCollapsedColumnsSnapshot,
+    getCollapsedColumnsServerSnapshot,
+  );
+  const collapsedColumns = useMemo(
+    () => readCollapsedColumns(collapsedSnapshot, activeBoard?.id ?? ""),
+    [activeBoard?.id, collapsedSnapshot],
+  );
+
   if (!activeBoard) {
     return (
       <section className="knowledge-empty knowledge-empty--compact">
@@ -1332,13 +1410,18 @@ function BoardPanel({
               (card) => !isScheduledForFuture(card.entity) && !isClosed(card.entity),
             );
             const scheduledCount = columnCards.length - cards.length;
+            const collapsed = collapsedColumns.has(column.id);
             const dropClass =
               columnDropHint?.columnId === column.id
                 ? ` knowledge-column--drop-${columnDropHint.edge}`
                 : "";
+            const cardDropClass =
+              collapsed && draggingEntityId && cardDropHint?.columnId === column.id
+                ? " knowledge-column--card-drop"
+                : "";
             return (
               <div
-                className={`knowledge-column${draggingColumnId === column.id ? " knowledge-column--dragging" : ""}${dropClass}`}
+                className={`knowledge-column${collapsed ? " knowledge-column--collapsed" : ""}${draggingColumnId === column.id ? " knowledge-column--dragging" : ""}${dropClass}${cardDropClass}`}
                 key={column.id}
                 onDragOver={(event) => {
                   event.preventDefault();
@@ -1370,12 +1453,14 @@ function BoardPanel({
                   column={column}
                   count={cards.length}
                   scheduledCount={scheduledCount}
+                  collapsed={collapsed}
+                  onToggleCollapsed={() => setColumnCollapsed(activeBoard.id, column.id, !collapsed)}
                   onUpdate={onUpdateColumn}
                   onDelete={onDeleteColumn}
                   onDragStart={onColumnDragStart}
                   onDragEnd={onColumnDragEnd}
                 />
-                <div
+                {!collapsed && <div
                   className={`knowledge-card-list${
                     cardDropHint?.columnId === column.id && cardDropHint.beforeEntityId === null
                       ? " knowledge-card-list--drop-end"
@@ -1437,7 +1522,7 @@ function BoardPanel({
                     <Plus size={15} />
                     Add card
                   </button>
-                </div>
+                </div>}
               </div>
             );
           })}
@@ -1594,6 +1679,8 @@ function ColumnHeader({
   column,
   count,
   scheduledCount = 0,
+  collapsed,
+  onToggleCollapsed,
   onUpdate,
   onDelete,
   onDragStart,
@@ -1602,6 +1689,8 @@ function ColumnHeader({
   column: BoardColumn;
   count: number;
   scheduledCount?: number;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onUpdate: (column: BoardColumn, title: string) => void;
   onDelete: (column: BoardColumn) => void;
   onDragStart: (columnId: string) => void;
@@ -1615,7 +1704,7 @@ function ColumnHeader({
   }, [column.title]);
 
   return (
-    <div className="knowledge-column-head">
+    <div className={`knowledge-column-head${collapsed ? " knowledge-column-head--collapsed" : ""}`}>
       <button
         type="button"
         className="knowledge-column-drag"
@@ -1630,7 +1719,19 @@ function ColumnHeader({
       >
         <GripVertical size={15} />
       </button>
-      {editing ? (
+      {collapsed ? (
+        <button
+          type="button"
+          className="knowledge-column-expand"
+          aria-label={`Expand ${column.title}`}
+          title={`Expand ${column.title}`}
+          onClick={onToggleCollapsed}
+        >
+          <ChevronRight size={15} />
+          <span className="knowledge-column-vertical-title">{column.title}</span>
+          <span className="knowledge-column-collapsed-count">{count}</span>
+        </button>
+      ) : editing ? (
         <input
           className="event-dialog-input"
           value={title}
@@ -1655,7 +1756,7 @@ function ColumnHeader({
       ) : (
         <h2>{column.title}</h2>
       )}
-      <div className="knowledge-column-actions">
+      {!collapsed && <div className="knowledge-column-actions">
         <span>{count}</span>
         {scheduledCount > 0 && (
           <span
@@ -1666,13 +1767,21 @@ function ColumnHeader({
             {scheduledCount}
           </span>
         )}
+        <button
+          type="button"
+          aria-label={`Collapse ${column.title}`}
+          title="Collapse column"
+          onClick={onToggleCollapsed}
+        >
+          <ChevronLeft size={14} />
+        </button>
         <button type="button" aria-label="Edit column" onClick={() => setEditing(true)}>
           <Pencil size={14} />
         </button>
         <button type="button" aria-label="Delete column" onClick={() => onDelete(column)}>
           <Trash2 size={14} />
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
