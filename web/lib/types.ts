@@ -161,6 +161,93 @@ export type Board = {
   cards: BoardCard[];
 };
 
+/** Whether this account has connected GitHub, and whether the server even
+ * offers the integration (it is optional and off by default). */
+export type GitHubStatus = {
+  configured: boolean;
+  connected: boolean;
+  login: string | null;
+  avatar_url: string | null;
+  scopes: string | null;
+  connected_at: string | null;
+};
+
+export type GitHubUser = {
+  login: string;
+  avatar_url: string | null;
+  name: string | null;
+};
+
+/** `color` is six hex digits with no leading '#', as GitHub stores it. */
+export type GitHubLabel = {
+  name: string;
+  color: string;
+  description: string | null;
+};
+
+/** A repository the connected account can reach — an option in the picker. */
+export type GitHubRepo = {
+  id: number;
+  owner: string;
+  name: string;
+  full_name: string;
+  private: boolean;
+  html_url: string;
+  description: string | null;
+  is_organization: boolean;
+  open_issues_count: number;
+  tracked: boolean;
+};
+
+/** A repository this workspace pulls issues from. */
+export type GitHubTrackedRepo = {
+  id: string;
+  workspace_id: string;
+  repo_id: number;
+  owner: string;
+  name: string;
+  full_name: string;
+  created_at: string;
+};
+
+/** Derived lane, not a GitHub field: GitHub issues are only open or closed, so
+ * "in progress" means open *and* assigned (see services/github.py:issue_lane). */
+export type GitHubLane = "open" | "in_progress" | "done";
+
+export type GitHubIssue = {
+  id: number;
+  number: number;
+  title: string;
+  body: string | null;
+  state: string;
+  state_reason: string | null;
+  html_url: string;
+  lane: GitHubLane;
+  assignees: GitHubUser[];
+  labels: GitHubLabel[];
+  comments: number;
+  author: GitHubUser | null;
+  milestone: string | null;
+  repo_id: number;
+  repo_full_name: string;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+};
+
+/** One tracked repo that could not be read — surfaced per repo so a single
+ * failure does not blank out the whole board. */
+export type GitHubRepoError = {
+  repo_id: number;
+  full_name: string;
+  message: string;
+};
+
+export type GitHubIssueList = {
+  issues: GitHubIssue[];
+  repo_errors: GitHubRepoError[];
+};
+
 /** Google-style named event colors. `value` is null for "calendar default". */
 export const EVENT_COLORS = [
   { name: "Calendar default", value: null },

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { CalendarDays, Columns3, Grid3X3, LayoutGrid, Mail, Menu, Settings, Sparkles } from "lucide-react";
+import { CalendarDays, Columns3, GitBranch, Grid3X3, LayoutGrid, Mail, Menu, Settings, Sparkles } from "lucide-react";
 
 type AppHeaderProps = {
   workspaceId: string;
@@ -56,6 +56,12 @@ export function AppHeader({ workspaceId, sidebarOpen, onToggleSidebar }: AppHead
       icon: Columns3,
       href: `/workspace/${workspaceId}/boards`,
       active: pathname.startsWith(`/workspace/${workspaceId}/boards`),
+    },
+    {
+      label: "GitHub",
+      icon: GitBranch,
+      href: `/workspace/${workspaceId}/github`,
+      active: pathname.startsWith(`/workspace/${workspaceId}/github`),
     },
   ];
 
