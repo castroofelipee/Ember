@@ -78,6 +78,52 @@ async def _make_card(
     return response.json()
 
 
+async def test_create_card_stores_workspace_member_assignee_id(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    member_response = await client.get(
+        f"{WORKSPACES_URL}/{workspace_id}/members", headers=_auth_header(token)
+    )
+    member = member_response.json()[0]
+    board = await _make_board(client, token, workspace_id)
+
+    response = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}/cards/new",
+        headers=_auth_header(token),
+        json={
+            "column_id": board["columns"][0]["id"],
+            "type": "task",
+            "title": "Owned task",
+            "assignees": [member["display_name"]],
+            "assignee_ids": [member["user_id"]],
+        },
+    )
+
+    assert response.status_code == 201
+    entity = response.json()["cards"][0]["entity"]
+    assert entity["properties"]["assignee_ids"] == [member["user_id"]]
+
+
+async def test_create_card_rejects_non_member_assignee_id(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    board = await _make_board(client, token, workspace_id)
+
+    response = await client.post(
+        f"{WORKSPACES_URL}/{workspace_id}/boards/{board['id']}/cards/new",
+        headers=_auth_header(token),
+        json={
+            "column_id": board["columns"][0]["id"],
+            "type": "task",
+            "title": "Invalid owner",
+            "assignee_ids": ["00000000-0000-0000-0000-000000000001"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Every assignee must be a workspace member."
+
+
 def _column_card_titles(board: dict, column_id: str) -> list[str]:
     cards = [card for card in board["cards"] if card["column_id"] == column_id]
     cards.sort(key=lambda card: card["position"])
