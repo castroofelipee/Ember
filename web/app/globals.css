@@ -2262,6 +2262,7 @@
 
 .knowledge-card {
   width: 100%;
+  flex-shrink: 0;
   min-height: 5.25rem;
   border: 1px solid #2c2c2c;
   border-radius: 0.55rem;
@@ -2335,6 +2336,7 @@
 
 .knowledge-add-card {
   width: 100%;
+  flex-shrink: 0;
   min-height: 2.4rem;
   border: 1px dashed #3a3a3a;
   border-radius: 0.55rem;
