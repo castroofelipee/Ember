@@ -1898,15 +1898,14 @@
   background: #171717;
 }
 
-.knowledge-option-list,
 .knowledge-option-picker {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
 }
 
-.knowledge-option-list span,
-.knowledge-option-choice {
+.knowledge-option-choice,
+.knowledge-option-color {
   padding: 0.28rem 0.55rem;
   border: 1px solid #353535;
   border-radius: 999px;
@@ -1916,7 +1915,7 @@
 }
 
 /* The label chip wears its own colour and carries the picker that sets it. */
-.knowledge-option-list span.knowledge-option-color {
+.knowledge-option-color {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
