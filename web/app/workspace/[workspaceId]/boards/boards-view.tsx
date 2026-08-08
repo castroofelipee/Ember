@@ -33,6 +33,8 @@ import {
   RefreshCw,
   Save,
   Search,
+  Settings,
+  Share2,
   Tag,
   Trash2,
   UserRound,
@@ -52,6 +54,7 @@ import type {
   RelatedEntity,
   Calendar,
   EventItem,
+  WorkspaceMember,
 } from "@/lib/types";
 
 const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
@@ -343,6 +346,7 @@ export function BoardsView() {
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [folders, setFolders] = useState<KnowledgeFolder[]>([]);
   const [documents, setDocuments] = useState<Entity[]>([]);
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
@@ -362,7 +366,8 @@ export function BoardsView() {
   const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
   const [deletingBoard, setDeletingBoard] = useState(false);
   const [labelOption, setLabelOption] = useState("");
-  const [assigneeOption, setAssigneeOption] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"workflow" | "members">("workflow");
 
   const activeBoard = useMemo(
     () => boards.find((board) => board.id === activeBoardId) ?? boards[0] ?? null,
@@ -374,13 +379,14 @@ export function BoardsView() {
     setLoading(true);
     setError(null);
     try {
-      const [boardsResponse, calendarsResponse, foldersResponse, documentsResponse] = await Promise.all([
+      const [boardsResponse, calendarsResponse, foldersResponse, documentsResponse, membersResponse] = await Promise.all([
         apiFetch(`/api/workspaces/${workspaceId}/boards`),
         apiFetch(`/api/workspaces/${workspaceId}/calendars`),
         apiFetch(`/api/workspaces/${workspaceId}/folders`),
         apiFetch(`/api/workspaces/${workspaceId}/entities?type=document`),
+        apiFetch(`/api/workspaces/${workspaceId}/members`),
       ]);
-      if (!boardsResponse.ok || !calendarsResponse.ok || !foldersResponse.ok || !documentsResponse.ok) {
+      if (!boardsResponse.ok || !calendarsResponse.ok || !foldersResponse.ok || !documentsResponse.ok || !membersResponse.ok) {
         setError("Could not load workspace knowledge.");
         return;
       }
@@ -388,10 +394,12 @@ export function BoardsView() {
       const calendarItems: Calendar[] = await calendarsResponse.json();
       const folderItems: KnowledgeFolder[] = await foldersResponse.json();
       const documentItems: Entity[] = await documentsResponse.json();
+      const memberItems: WorkspaceMember[] = await membersResponse.json();
       setBoards(boardItems);
       setCalendars(calendarItems);
       setFolders(folderItems);
       setDocuments(documentItems);
+      setMembers(memberItems);
       setActiveBoardId((current) => current ?? boardItems[0]?.id ?? null);
     } finally {
       setLoading(false);
@@ -472,6 +480,7 @@ export function BoardsView() {
     type: EntityType;
     labels: string[];
     assignees: string[];
+    assigneeIds: string[];
     dueDate: string;
     content: string;
     checklist: ChecklistItem[];
@@ -491,6 +500,7 @@ export function BoardsView() {
             content: data.content,
             labels: data.labels,
             assignees: data.assignees,
+            assignee_ids: data.assigneeIds,
             due_date: data.dueDate,
             checklist: data.checklist,
             recurrence: data.recurrence,
@@ -650,6 +660,10 @@ export function BoardsView() {
 
   async function deleteColumn(column: BoardColumn) {
     if (!activeBoard) return;
+    const cardCount = activeBoard.cards.filter((card) => card.column_id === column.id).length;
+    if (!window.confirm(cardCount > 0
+      ? `Delete ${column.title}? ${cardCount} card${cardCount === 1 ? "" : "s"} will leave this board but remain in the workspace.`
+      : `Delete ${column.title}?`)) return;
     try {
       const response = await apiFetch(
         `/api/workspaces/${workspaceId}/boards/${activeBoard.id}/columns/${column.id}`,
@@ -690,22 +704,21 @@ export function BoardsView() {
     }
   }
 
-  async function addBoardOption(kind: "label_options" | "assignee_options", value: string) {
+  async function addBoardLabel(value: string) {
     if (!activeBoard || !value.trim()) return;
-    const options = activeBoard[kind];
+    const options = activeBoard.label_options;
     if (options.some((option) => option.toLowerCase() === value.trim().toLowerCase())) return;
     try {
       const board = await jsonRequest<Board>(
         `/api/workspaces/${workspaceId}/boards/${activeBoard.id}`,
         {
           method: "PATCH",
-          body: JSON.stringify({ [kind]: [...options, value.trim()] }),
+          body: JSON.stringify({ label_options: [...options, value.trim()] }),
         },
         "Could not update board options.",
       );
       setBoards((prev) => prev.map((item) => (item.id === board.id ? board : item)));
-      if (kind === "label_options") setLabelOption("");
-      else setAssigneeOption("");
+      setLabelOption("");
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not update board options.");
@@ -733,6 +746,25 @@ export function BoardsView() {
       setError(null);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not update label colour.");
+    }
+  }
+
+  async function archiveBoardLabel(label: string) {
+    if (!activeBoard) return;
+    if (!window.confirm(`Archive ${label}? Existing cards keep the label, but it can no longer be assigned.`)) return;
+    try {
+      const board = await jsonRequest<Board>(
+        `/api/workspaces/${workspaceId}/boards/${activeBoard.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ label_options: activeBoard.label_options.filter((item) => item !== label) }),
+        },
+        "Could not archive label.",
+      );
+      setBoards((prev) => prev.map((item) => item.id === board.id ? board : item));
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not archive label.");
     }
   }
 
@@ -1095,14 +1127,8 @@ export function BoardsView() {
           onSelectEntity={setSelectedEntity}
           onCloseCard={closeCard}
           onDeleteCard={deleteCard}
-          onDeleteBoard={() => activeBoard && setBoardToDelete(activeBoard)}
-          labelOption={labelOption}
-          assigneeOption={assigneeOption}
-          onLabelOptionChange={setLabelOption}
-          onAssigneeOptionChange={setAssigneeOption}
-          onAddLabelOption={() => addBoardOption("label_options", labelOption)}
-          onSetLabelColor={setLabelColor}
-          onAddAssigneeOption={() => addBoardOption("assignee_options", assigneeOption)}
+          members={members}
+          onOpenSettings={(tab) => { setSettingsInitialTab(tab); setSettingsOpen(true); }}
         />
       </main>
 
@@ -1116,6 +1142,8 @@ export function BoardsView() {
           onDeleted={deleteCard}
           onRelatedCreated={updateEntityInState}
           board={activeBoard}
+          members={members}
+          onCreateLabel={addBoardLabel}
           onSyncCalendarEvent={syncCalendarEventForCard}
         />
       )}
@@ -1123,8 +1151,32 @@ export function BoardsView() {
         <CardCreateDrawer
           column={creatingCardColumn}
           board={activeBoard}
+          members={members}
+          onCreateLabel={addBoardLabel}
           onClose={() => setCreatingCardColumn(null)}
           onCreate={createCard}
+        />
+      )}
+      {settingsOpen && activeBoard && (
+        <BoardSettingsDrawer
+          board={activeBoard}
+          members={members}
+          initialTab={settingsInitialTab}
+          columnTitle={columnTitle}
+          labelOption={labelOption}
+          onColumnTitleChange={setColumnTitle}
+          onCreateColumn={createColumn}
+          onUpdateColumn={updateColumn}
+          onDeleteColumn={deleteColumn}
+          onLabelOptionChange={setLabelOption}
+          onAddLabel={() => addBoardLabel(labelOption)}
+          onSetLabelColor={setLabelColor}
+          onArchiveLabel={archiveBoardLabel}
+          onDeleteBoard={() => {
+            setSettingsOpen(false);
+            setBoardToDelete(activeBoard);
+          }}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
       {boardToDelete && (
@@ -1200,14 +1252,8 @@ function BoardPanel({
   onSelectEntity,
   onCloseCard,
   onDeleteCard,
-  onDeleteBoard,
-  labelOption,
-  assigneeOption,
-  onLabelOptionChange,
-  onAssigneeOptionChange,
-  onAddLabelOption,
-  onAddAssigneeOption,
-  onSetLabelColor,
+  members,
+  onOpenSettings,
 }: {
   activeBoard: Board | null;
   columnTitle: string;
@@ -1232,14 +1278,8 @@ function BoardPanel({
   onSelectEntity: (entity: Entity) => void;
   onCloseCard: (entity: Entity) => void;
   onDeleteCard: (entity: Entity) => void;
-  onDeleteBoard: () => void;
-  labelOption: string;
-  assigneeOption: string;
-  onLabelOptionChange: (value: string) => void;
-  onAssigneeOptionChange: (value: string) => void;
-  onAddLabelOption: () => void;
-  onAddAssigneeOption: () => void;
-  onSetLabelColor: (label: string, color: string) => void;
+  members: WorkspaceMember[];
+  onOpenSettings: (tab: "workflow" | "members") => void;
 }) {
   if (!activeBoard) {
     return (
@@ -1258,79 +1298,28 @@ function BoardPanel({
           <p className="mail-list-kicker">Workspace board</p>
           <h1>{activeBoard.title}</h1>
         </div>
-        <Button type="button" variant="destructive" onClick={onDeleteBoard}>
-          <Trash2 />
-          Delete board
-        </Button>
-      </header>
-
-      <div className="knowledge-column-create">
-        <input
-          className="event-dialog-input"
-          value={columnTitle}
-          onChange={(event) => onColumnTitleChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") onCreateColumn();
-          }}
-          placeholder="Column name, e.g. Backlog, Blocked, Done"
-        />
-        <Button type="button" onClick={onCreateColumn}>
-          <Plus />
-          Column
-        </Button>
-      </div>
-
-      <div className="knowledge-board-options">
-        <div className="knowledge-board-option-group">
-          <span className="event-dialog-label"><Tag size={14} /> Labels</span>
-          <div className="knowledge-inline-create">
-            <input
-              className="event-dialog-input"
-              value={labelOption}
-              onChange={(event) => onLabelOptionChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") onAddLabelOption();
-              }}
-              placeholder="New label"
-            />
-            <Button type="button" onClick={onAddLabelOption}><Plus /></Button>
-          </div>
-          <div className="knowledge-option-list">
-            {activeBoard.label_options.map((option) => (
-              <LabelColorChip
-                key={option}
-                label={option}
-                color={labelColor(activeBoard, option)}
-                onChange={(color) => onSetLabelColor(option, color)}
-              />
+        <div className="knowledge-header-actions">
+          <div className="knowledge-member-stack" aria-label={`${members.length} workspace members`}>
+            {members.slice(0, 4).map((member) => (
+              <span key={member.id} title={member.display_name}>{initialForName(member.display_name)}</span>
             ))}
           </div>
+          <Button type="button" variant="outline" onClick={() => onOpenSettings("members")}>
+            <Share2 />
+            Share
+          </Button>
+          <button type="button" className="mail-icon-button" aria-label="Board settings" title="Board settings" onClick={() => onOpenSettings("workflow")}>
+            <Settings size={18} />
+          </button>
         </div>
-        <div className="knowledge-board-option-group">
-          <span className="event-dialog-label"><UserRound size={14} /> Responsible</span>
-          <div className="knowledge-inline-create">
-            <input
-              className="event-dialog-input"
-              value={assigneeOption}
-              onChange={(event) => onAssigneeOptionChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") onAddAssigneeOption();
-              }}
-              placeholder="New responsible"
-            />
-            <Button type="button" onClick={onAddAssigneeOption}><Plus /></Button>
-          </div>
-          <div className="knowledge-option-list">
-            {activeBoard.assignee_options.map((option) => <span key={option}>{option}</span>)}
-          </div>
-        </div>
-      </div>
+      </header>
 
       {activeBoard.columns.length === 0 ? (
         <section className="knowledge-empty knowledge-empty--compact">
           <Columns3 size={24} />
           <h1>Create your first column</h1>
           <p>This board has no predefined workflow. Add the columns that match your process.</p>
+          <InlineColumnCreate value={columnTitle} onChange={onColumnTitleChange} onCreate={onCreateColumn} />
         </section>
       ) : (
         <section className="knowledge-board">
@@ -1452,9 +1441,152 @@ function BoardPanel({
               </div>
             );
           })}
+          <InlineColumnCreate
+            value={columnTitle}
+            onChange={onColumnTitleChange}
+            onCreate={onCreateColumn}
+          />
         </section>
       )}
     </>
+  );
+}
+
+function InlineColumnCreate({
+  value,
+  onChange,
+  onCreate,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onCreate: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!open) {
+    return (
+      <button type="button" className="knowledge-add-column" onClick={() => setOpen(true)}>
+        <Plus size={17} />
+        Add column
+      </button>
+    );
+  }
+  return (
+    <div className="knowledge-add-column knowledge-add-column--open">
+      <input
+        className="event-dialog-input"
+        value={value}
+        autoFocus
+        placeholder="Column name"
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && value.trim()) {
+            onCreate();
+            setOpen(false);
+          }
+          if (event.key === "Escape") {
+            onChange("");
+            setOpen(false);
+          }
+        }}
+      />
+      <div>
+        <Button type="button" onClick={() => { onCreate(); setOpen(false); }} disabled={!value.trim()}>Add</Button>
+        <Button type="button" variant="ghost" onClick={() => { onChange(""); setOpen(false); }}>Cancel</Button>
+      </div>
+    </div>
+  );
+}
+
+function BoardSettingsDrawer({
+  board,
+  members,
+  initialTab,
+  columnTitle,
+  labelOption,
+  onColumnTitleChange,
+  onCreateColumn,
+  onUpdateColumn,
+  onDeleteColumn,
+  onLabelOptionChange,
+  onAddLabel,
+  onSetLabelColor,
+  onArchiveLabel,
+  onDeleteBoard,
+  onClose,
+}: {
+  board: Board;
+  members: WorkspaceMember[];
+  initialTab: "workflow" | "members";
+  columnTitle: string;
+  labelOption: string;
+  onColumnTitleChange: (value: string) => void;
+  onCreateColumn: () => void;
+  onUpdateColumn: (column: BoardColumn, title: string) => void;
+  onDeleteColumn: (column: BoardColumn) => void;
+  onLabelOptionChange: (value: string) => void;
+  onAddLabel: () => void;
+  onSetLabelColor: (label: string, color: string) => void;
+  onArchiveLabel: (label: string) => void;
+  onDeleteBoard: () => void;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"workflow" | "labels" | "members" | "danger">(initialTab);
+  return (
+    <aside className="knowledge-drawer" aria-label="Board settings">
+      <div className="knowledge-drawer-top">
+        <div><p className="mail-list-kicker">{board.title}</p><h2>Board settings</h2></div>
+        <button type="button" className="mail-icon-button" aria-label="Close settings" onClick={onClose}><X size={18} /></button>
+      </div>
+      <div className="knowledge-settings-tabs" role="tablist">
+        <button type="button" className={tab === "workflow" ? "knowledge-tab knowledge-tab--active" : "knowledge-tab"} onClick={() => setTab("workflow")}>Workflow</button>
+        <button type="button" className={tab === "labels" ? "knowledge-tab knowledge-tab--active" : "knowledge-tab"} onClick={() => setTab("labels")}>Labels</button>
+        <button type="button" className={tab === "members" ? "knowledge-tab knowledge-tab--active" : "knowledge-tab"} onClick={() => setTab("members")}>Members</button>
+        <button type="button" className={tab === "danger" ? "knowledge-tab knowledge-tab--active" : "knowledge-tab"} onClick={() => setTab("danger")}>Danger zone</button>
+      </div>
+      <div className="knowledge-drawer-body">
+        {tab === "workflow" && <>
+          <p className="knowledge-muted">Define the stages cards move through.</p>
+          <div className="knowledge-settings-list">
+            {[...board.columns].sort((a, b) => a.position - b.position).map((column) => (
+              <div key={column.id} className="knowledge-settings-row">
+                <input className="event-dialog-input" defaultValue={column.title} onBlur={(event) => { if (event.target.value.trim() && event.target.value.trim() !== column.title) onUpdateColumn(column, event.target.value); }} />
+                <button type="button" className="mail-icon-button" aria-label={`Delete ${column.title}`} onClick={() => onDeleteColumn(column)}><Trash2 size={16} /></button>
+              </div>
+            ))}
+          </div>
+          <div className="knowledge-inline-create">
+            <input className="event-dialog-input" value={columnTitle} placeholder="New workflow stage" onChange={(event) => onColumnTitleChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onCreateColumn(); }} />
+            <Button type="button" onClick={onCreateColumn} disabled={!columnTitle.trim()}><Plus /> Add</Button>
+          </div>
+        </>}
+        {tab === "labels" && <>
+          <p className="knowledge-muted">Create reusable labels and choose their colors.</p>
+          <div className="knowledge-inline-create">
+            <input className="event-dialog-input" value={labelOption} placeholder="New label" onChange={(event) => onLabelOptionChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") onAddLabel(); }} />
+            <Button type="button" onClick={onAddLabel} disabled={!labelOption.trim()}><Plus /> Add</Button>
+          </div>
+          <div className="knowledge-settings-list">
+            {board.label_options.map((label) => <div className="knowledge-settings-row" key={label}>
+              <LabelColorChip label={label} color={labelColor(board, label)} onChange={(color) => onSetLabelColor(label, color)} />
+              <button type="button" className="mail-icon-button" aria-label={`Archive ${label}`} title="Archive label" onClick={() => onArchiveLabel(label)}><X size={15} /></button>
+            </div>)}
+          </div>
+        </>}
+        {tab === "members" && <>
+          <p className="knowledge-muted">Responsibles come from real workspace members.</p>
+          <div className="knowledge-member-picker">
+            {members.map((member) => <div className="knowledge-member-choice" key={member.id}>
+              <span>{initialForName(member.display_name)}</span>
+              <span><strong>{member.display_name}</strong><small>{member.email} · {member.role}</small></span>
+            </div>)}
+          </div>
+        </>}
+        {tab === "danger" && <div className="knowledge-danger-zone">
+          <div><strong>Delete board</strong><p>Columns are removed; cards remain as workspace entities.</p></div>
+          <Button type="button" variant="destructive" onClick={onDeleteBoard}><Trash2 /> Delete board</Button>
+        </div>}
+      </div>
+    </aside>
   );
 }
 
@@ -2175,14 +2307,62 @@ function OptionPicker({
   );
 }
 
+function CreatableLabelPicker({ board, selected, onChange, onCreate }: {
+  board: Board;
+  selected: string[];
+  onChange: (value: string[]) => void;
+  onCreate: (label: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const exact = board.label_options.some((label) => label.toLowerCase() === query.trim().toLowerCase());
+  return <div className="knowledge-picker-stack">
+    <input className="event-dialog-input" value={query} placeholder="Search or create a label" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+      if (event.key === "Enter" && query.trim() && !exact) {
+        onCreate(query.trim());
+        onChange([...selected, query.trim()]);
+        setQuery("");
+      }
+    }} />
+    <OptionPicker
+      options={board.label_options.filter((label) => label.toLowerCase().includes(query.trim().toLowerCase()))}
+      selected={selected}
+      onChange={onChange}
+      empty={query.trim() ? "No matching labels" : "No labels yet"}
+      colorFor={(option) => labelColor(board, option)}
+    />
+    {query.trim() && !exact && <button type="button" className="knowledge-picker-create" onClick={() => { onCreate(query.trim()); onChange([...selected, query.trim()]); setQuery(""); }}><Plus size={14} /> Create “{query.trim()}”</button>}
+  </div>;
+}
+
+function MemberPicker({ members, selected, onChange }: {
+  members: WorkspaceMember[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  if (members.length === 0) return <span className="knowledge-option-empty">No workspace members</span>;
+  return <div className="knowledge-member-picker">
+    {members.map((member) => {
+      const active = selected.includes(member.user_id);
+      return <button type="button" key={member.id} aria-pressed={active} className={`knowledge-member-choice${active ? " knowledge-member-choice--active" : ""}`} onClick={() => onChange(active ? selected.filter((id) => id !== member.user_id) : [...selected, member.user_id])}>
+        <span>{initialForName(member.display_name)}</span>
+        <span><strong>{member.display_name}</strong><small>{member.email}</small></span>
+      </button>;
+    })}
+  </div>;
+}
+
 function CardCreateDrawer({
   column,
   board,
+  members,
+  onCreateLabel,
   onClose,
   onCreate,
 }: {
   column: BoardColumn;
   board: Board;
+  members: WorkspaceMember[];
+  onCreateLabel: (label: string) => void;
   onClose: () => void;
   onCreate: (data: {
     column: BoardColumn;
@@ -2190,6 +2370,7 @@ function CardCreateDrawer({
     type: EntityType;
     labels: string[];
     assignees: string[];
+    assigneeIds: string[];
     dueDate: string;
     content: string;
     checklist: ChecklistItem[];
@@ -2200,6 +2381,7 @@ function CardCreateDrawer({
   const [type, setType] = useState<EntityType>("task");
   const [labels, setLabels] = useState<string[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [recurrence, setRecurrence] = useState<CardRecurrence>("none");
   const [content, setContent] = useState("");
@@ -2220,6 +2402,7 @@ function CardCreateDrawer({
       type,
       labels,
       assignees,
+      assigneeIds,
       dueDate,
       content,
       checklist,
@@ -2269,14 +2452,14 @@ function CardCreateDrawer({
               <Tag size={14} />
               Labels
             </span>
-            <OptionPicker options={board.label_options} selected={labels} onChange={setLabels} empty="Create labels in the board first" colorFor={(option) => labelColor(board, option)} />
+            <CreatableLabelPicker board={board} selected={labels} onChange={setLabels} onCreate={onCreateLabel} />
           </div>
           <div className="event-dialog-field">
             <span className="event-dialog-label">
               <UserRound size={14} />
               Responsible
             </span>
-            <OptionPicker options={board.assignee_options} selected={assignees} onChange={setAssignees} empty="Create responsibles in the board first" />
+            <MemberPicker members={members} selected={assigneeIds} onChange={(ids) => { setAssigneeIds(ids); setAssignees(members.filter((member) => ids.includes(member.user_id)).map((member) => member.display_name)); }} />
           </div>
         </div>
         <label className="event-dialog-field">
@@ -2375,6 +2558,8 @@ function EntityDrawer({
   onDeleted,
   onRelatedCreated,
   board,
+  members,
+  onCreateLabel,
   onSyncCalendarEvent,
 }: {
   workspaceId: string;
@@ -2385,6 +2570,8 @@ function EntityDrawer({
   onDeleted: (entity: Entity) => void;
   onRelatedCreated: (entity: Entity) => void;
   board: Board | null;
+  members: WorkspaceMember[];
+  onCreateLabel: (label: string) => void;
   onSyncCalendarEvent: (entity: Entity) => Promise<Entity>;
 }) {
   const [title, setTitle] = useState(entity.title);
@@ -2392,6 +2579,12 @@ function EntityDrawer({
   const [content, setContent] = useState(entity.content);
   const [labels, setLabels] = useState(stringListProp(entity, "labels"));
   const [assignees, setAssignees] = useState(stringListProp(entity, "assignees"));
+  const [assigneeIds, setAssigneeIds] = useState(() => {
+    const saved = stringListProp(entity, "assignee_ids");
+    if (saved.length) return saved;
+    const legacyNames = stringListProp(entity, "assignees").map((name) => name.toLowerCase());
+    return members.filter((member) => legacyNames.includes(member.display_name.toLowerCase())).map((member) => member.user_id);
+  });
   const [dueDate, setDueDate] = useState(stringProp(entity, "due_date"));
   const [recurrence, setRecurrence] = useState<CardRecurrence>(
     stringProp(entity, "recurrence") === "daily" ? "daily" : "none",
@@ -2419,12 +2612,15 @@ function EntityDrawer({
     setContent(entity.content);
     setLabels(stringListProp(entity, "labels"));
     setAssignees(stringListProp(entity, "assignees"));
+    const savedAssigneeIds = stringListProp(entity, "assignee_ids");
+    const legacyNames = stringListProp(entity, "assignees").map((name) => name.toLowerCase());
+    setAssigneeIds(savedAssigneeIds.length ? savedAssigneeIds : members.filter((member) => legacyNames.includes(member.display_name.toLowerCase())).map((member) => member.user_id));
     setDueDate(stringProp(entity, "due_date"));
     setRecurrence(stringProp(entity, "recurrence") === "daily" ? "daily" : "none");
     setChecklist(checklistProp(entity));
     setDrawerError(null);
     void loadRelated();
-  }, [entity, loadRelated]);
+  }, [entity, loadRelated, members]);
 
   async function saveEntity() {
     const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
@@ -2437,6 +2633,7 @@ function EntityDrawer({
           ...entity.properties,
           labels,
           assignees,
+          assignee_ids: assigneeIds,
           due_date: dueDate,
           checklist,
           recurrence,
@@ -2580,14 +2777,14 @@ function EntityDrawer({
               <Tag size={14} />
               Labels
             </span>
-            <OptionPicker options={board?.label_options ?? labels} selected={labels} onChange={setLabels} empty="Create labels in the board first" colorFor={(option) => labelColor(board, option)} />
+            {board ? <CreatableLabelPicker board={board} selected={labels} onChange={setLabels} onCreate={onCreateLabel} /> : <OptionPicker options={labels} selected={labels} onChange={setLabels} empty="No labels" />}
           </div>
           <div className="event-dialog-field">
             <span className="event-dialog-label">
               <UserRound size={14} />
               Responsible
             </span>
-            <OptionPicker options={board?.assignee_options ?? assignees} selected={assignees} onChange={setAssignees} empty="Create responsibles in the board first" />
+            <MemberPicker members={members} selected={assigneeIds} onChange={(ids) => { setAssigneeIds(ids); setAssignees(members.filter((member) => ids.includes(member.user_id)).map((member) => member.display_name)); }} />
           </div>
         </div>
 

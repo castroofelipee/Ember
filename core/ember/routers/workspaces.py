@@ -13,6 +13,7 @@ from ember.schemas.workspaces import (
     HolidaySettingsResponse,
     HolidaySettingsUpdateRequest,
     WorkspaceCreateRequest,
+    WorkspaceMemberResponse,
     WorkspaceResponse,
 )
 from ember.services.holidays import (
@@ -28,6 +29,7 @@ from ember.services.workspaces import (
     assert_workspace_member,
     create_workspace,
     list_my_workspaces,
+    list_workspace_members,
 )
 
 router = APIRouter(prefix="/api/workspaces", tags=["Workspaces"])
@@ -65,6 +67,27 @@ async def list_workspaces_route(
     return [
         WorkspaceResponse(id=w.id, name=w.name, role=role.value, created_at=w.created_at)
         for w, role in rows
+    ]
+
+
+@router.get("/{workspace_id}/members")
+async def list_workspace_members_route(
+    workspace_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[WorkspaceMemberResponse]:
+    await _require_membership(db, workspace_id, current_user.id)
+    rows = await list_workspace_members(db, workspace_id)
+    return [
+        WorkspaceMemberResponse(
+            id=member.id,
+            user_id=user.id,
+            display_name=user.display_name,
+            email=user.email,
+            avatar_url=user.avatar_url,
+            role=member.role.value,
+        )
+        for member, user in rows
     ]
 
 

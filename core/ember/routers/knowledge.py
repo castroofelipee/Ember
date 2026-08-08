@@ -56,7 +56,11 @@ from ember.services.knowledge import (
     update_board_column,
     update_entity,
 )
-from ember.services.workspaces import NotAWorkspaceMemberError, assert_workspace_member
+from ember.services.workspaces import (
+    NotAWorkspaceMemberError,
+    assert_workspace_member,
+    list_workspace_members,
+)
 
 router = APIRouter(prefix="/api/workspaces", tags=["Knowledge"])
 
@@ -72,6 +76,25 @@ async def _require_membership(db: AsyncSession, workspace_id: uuid.UUID, user_id
         await assert_workspace_member(db, workspace_id, user_id)
     except NotAWorkspaceMemberError as exc:
         raise _NOT_FOUND from exc
+
+
+async def _validated_assignees(
+    db: AsyncSession, workspace_id: uuid.UUID, values: list[object]
+) -> tuple[list[str], list[str]]:
+    try:
+        requested = [uuid.UUID(str(value)) for value in values]
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Every assignee must be a workspace member.",
+        ) from exc
+    members = {user.id: user for _, user in await list_workspace_members(db, workspace_id)}
+    if any(user_id not in members for user_id in requested):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Every assignee must be a workspace member.",
+        )
+    return [str(user_id) for user_id in requested], [members[user_id].display_name for user_id in requested]
 
 
 async def _get_entity_or_404(
@@ -179,6 +202,18 @@ async def update_entity_route(
 ) -> EntityResponse:
     await _require_membership(db, workspace_id, current_user.id)
     entity = await _get_entity_or_404(db, workspace_id, entity_id)
+    if data.properties is not None and "assignee_ids" in data.properties:
+        properties = dict(data.properties)
+        raw_ids = properties.get("assignee_ids")
+        if not isinstance(raw_ids, list):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="assignee_ids must be a list.",
+            )
+        assignee_ids, assignee_names = await _validated_assignees(db, workspace_id, raw_ids)
+        properties["assignee_ids"] = assignee_ids
+        properties["assignees"] = assignee_names
+        data = data.model_copy(update={"properties": properties})
     entity = await update_entity(db, entity, data)
     return EntityResponse.model_validate(entity)
 
@@ -472,6 +507,12 @@ async def create_board_card_route(
     column = await get_board_column(db, board.id, data.column_id)
     if column is None:
         raise _NOT_FOUND
+    assignee_ids: list[str] = []
+    assignee_names = data.assignees
+    if data.assignee_ids:
+        assignee_ids, assignee_names = await _validated_assignees(
+            db, workspace_id, list(data.assignee_ids)
+        )
 
     entity = await create_entity(
         db,
@@ -485,7 +526,8 @@ async def create_board_card_route(
                 "status": column.status_key or column.title,
                 "checklist": data.checklist,
                 "labels": data.labels,
-                "assignees": data.assignees,
+                "assignees": assignee_names,
+                "assignee_ids": assignee_ids,
                 "due_date": data.due_date,
                 "recurrence": data.recurrence,
             },

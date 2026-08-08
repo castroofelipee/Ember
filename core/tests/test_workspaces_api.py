@@ -52,6 +52,45 @@ async def test_create_workspace_returns_201_with_owner_role(client: AsyncClient)
     assert "id" in body
 
 
+async def test_list_workspace_members_returns_real_user_identity(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace = await client.post(
+        WORKSPACES_URL, headers=_auth_header(token), json={"name": "Home"}
+    )
+
+    response = await client.get(
+        f"{WORKSPACES_URL}/{workspace.json()['id']}/members",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": response.json()[0]["id"],
+            "user_id": response.json()[0]["user_id"],
+            "display_name": "Ada Lovelace",
+            "email": "ada@example.com",
+            "avatar_url": None,
+            "role": "owner",
+        }
+    ]
+
+
+async def test_list_workspace_members_hides_other_workspace(client: AsyncClient) -> None:
+    token_a = await _signup(client)
+    token_b = await _signup_second_user(client, token_a)
+    workspace = await client.post(
+        WORKSPACES_URL, headers=_auth_header(token_a), json={"name": "Home"}
+    )
+
+    response = await client.get(
+        f"{WORKSPACES_URL}/{workspace.json()['id']}/members",
+        headers=_auth_header(token_b),
+    )
+
+    assert response.status_code == 404
+
+
 async def test_list_workspaces_returns_only_mine(client: AsyncClient) -> None:
     token_a = await _signup(client)
     token_b = await _signup_second_user(client, token_a)
