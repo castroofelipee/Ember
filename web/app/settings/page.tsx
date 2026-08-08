@@ -1,4 +1,5 @@
 import { CalendarsSection } from "./calendars-section";
+import { GitHubSection } from "./github-section";
 import { InviteMembers } from "./invite-members";
 import { SettingsForm } from "./settings-form";
 import { SettingsHeader } from "./settings-header";
@@ -16,6 +17,8 @@ export default function SettingsPage() {
           <SettingsForm />
           <div className="settings-divider" />
           <CalendarsSection />
+          <div className="settings-divider" />
+          <GitHubSection />
           <div className="settings-divider" />
           <InviteMembers />
         </div>

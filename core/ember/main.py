@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ember.config import env
 from ember.routers.auth import router as auth_router
 from ember.routers.events import router as events_router
+from ember.routers.github import router as github_router
 from ember.routers.invites import router as invites_router
 from ember.routers.knowledge import router as knowledge_router
 from ember.routers.mail import router as mail_router
@@ -28,6 +29,7 @@ setup_swagger_ui(app, banner_config)
 
 app.include_router(auth_router)
 app.include_router(events_router)
+app.include_router(github_router)
 app.include_router(invites_router)
 app.include_router(knowledge_router)
 app.include_router(mail_router)

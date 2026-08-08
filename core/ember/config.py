@@ -43,6 +43,13 @@ env = venvalid(
         # means domains stay Ember-only records — Stalwart never mirrors them,
         # same as before this existed.
         "CLOUDFLARE_API_TOKEN": str_(default=""),
+        "GITHUB_OAUTH_CLIENT_ID": str_(default=""),
+        "GITHUB_OAUTH_CLIENT_SECRET": str_(default=""),
+        "GITHUB_API_URL": str_(default="https://api.github.com"),
+        "GITHUB_OAUTH_BASE_URL": str_(default="https://github.com"),
+        "GITHUB_HTTP_TIMEOUT_SECONDS": int_(default=15),
+        "GITHUB_TOKEN_ENCRYPTION_KEY": str_(default=""),
+        "PUBLIC_APP_URL": str_(default="http://localhost:6000"),
     }
 )
 
@@ -85,6 +92,19 @@ def cloudflare_dns_configured() -> bool:
     domains. Mirrors `mail_enabled()`'s role of centralizing the on/off
     decision."""
     return bool(env["CLOUDFLARE_API_TOKEN"])
+
+
+def github_configured() -> bool:
+    """Whether the GitHub integration can run. Mirrors `mail_enabled()`'s role
+    of centralizing the on/off decision. All three parts are required: without
+    the encryption key there is nowhere safe to put the resulting token, so a
+    half-configured integration must read as disabled rather than fall back to
+    storing a credential in plaintext."""
+    return bool(
+        env["GITHUB_OAUTH_CLIENT_ID"]
+        and env["GITHUB_OAUTH_CLIENT_SECRET"]
+        and env["GITHUB_TOKEN_ENCRYPTION_KEY"]
+    )
 
 
 def psycopg_dsn() -> str:

@@ -135,6 +135,11 @@ One row per external OAuth identity linked to a `User`.
 - Optionally caches provider profile data (email at time of link, raw claims) for debugging — not authoritative.
 - Unique on `(provider, provider_user_id)` — one external identity maps to exactly one `User`.
 - This table is *why* adding a provider later needs zero changes to `User`/`Credential`: it's purely additive.
+- **Still unbuilt.** Ember authenticates with email + password only. Note that
+  `github_connections` (`models/integration.py`) is *not* this table and does not
+  make GitHub a login method — it stores an integration credential used to call
+  the GitHub API on a user's behalf, and a user with one still signs in with
+  their password. See `docs/rfc/github-integration.md` §7.
 
 ### `Session`
 A logical login session — one per device/browser login.
