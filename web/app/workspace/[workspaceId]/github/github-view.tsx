@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type SubmitEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type DragEvent,
+  type SubmitEvent,
+} from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -135,6 +142,12 @@ export function GitHubView() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [movingIssueKey, setMovingIssueKey] = useState<string | null>(null);
+  const [assigneePrompt, setAssigneePrompt] = useState<{
+    issue: GitHubIssue;
+    options: GitHubUser[];
+    loading: boolean;
+  } | null>(null);
 
   const loadConnection = useCallback(async () => {
     const status = await jsonRequest<GitHubStatus>(
@@ -262,6 +275,65 @@ export function GitHubView() {
       setSelectedRepoIds((ids) => ids.filter((id) => id !== repoId));
       await refresh();
     } catch (error) {
+      setErrorMessage((error as Error).message);
+    }
+  }
+
+  const issueKey = (issue: GitHubIssue) => `${issue.repo_id}-${issue.id}`;
+
+  async function persistMove(issue: GitHubIssue, lane: GitHubLane, assignees: string[]) {
+    if (issue.lane === lane || movingIssueKey === issueKey(issue)) return;
+    const before = issues;
+    const optimistic: GitHubIssue = {
+      ...issue,
+      lane,
+      state: lane === "done" ? "closed" : "open",
+      assignees:
+        lane === "open"
+          ? []
+          : assignees.map(
+              (login) => issue.assignees.find((user) => user.login === login) ?? {
+                login,
+                avatar_url: null,
+                name: null,
+              },
+            ),
+    };
+    setMovingIssueKey(issueKey(issue));
+    setIssues((current) => current.map((candidate) => issueKey(candidate) === issueKey(issue) ? optimistic : candidate));
+    setErrorMessage(null);
+    try {
+      const updated = await jsonRequest<GitHubIssue>(
+        `/api/workspaces/${workspaceId}/github/issues/${issue.repo_id}/${issue.number}`,
+        { method: "PATCH", body: JSON.stringify({ lane, assignees }) },
+        "Could not move the issue.",
+      );
+      setIssues((current) => current.map((candidate) => issueKey(candidate) === issueKey(issue) ? updated : candidate));
+    } catch (error) {
+      setIssues(before);
+      setErrorMessage((error as Error).message);
+    } finally {
+      setMovingIssueKey(null);
+    }
+  }
+
+  async function requestMove(issue: GitHubIssue, lane: GitHubLane) {
+    if (issue.lane === lane) return;
+    if (lane !== "in_progress" || issue.assignees.length > 0) {
+      await persistMove(issue, lane, issue.assignees.map((user) => user.login));
+      return;
+    }
+
+    setAssigneePrompt({ issue, options: [], loading: true });
+    try {
+      const options = await jsonRequest<GitHubUser[]>(
+        `/api/workspaces/${workspaceId}/github/repos/${issue.repo_id}/assignees`,
+        {},
+        "Could not list repository assignees.",
+      );
+      setAssigneePrompt({ issue, options, loading: false });
+    } catch (error) {
+      setAssigneePrompt(null);
       setErrorMessage((error as Error).message);
     }
   }
@@ -408,7 +480,13 @@ export function GitHubView() {
           />
           <div className="github-lanes">
             {LANES.map((lane) => (
-              <Lane key={lane.key} lane={lane} issues={issuesByLane[lane.key]} />
+              <Lane
+                key={lane.key}
+                lane={lane}
+                issues={issuesByLane[lane.key]}
+                movingIssueKey={movingIssueKey}
+                onMove={requestMove}
+              />
             ))}
           </div>
         </>
@@ -430,6 +508,19 @@ export function GitHubView() {
           repos={trackedRepos}
           onClose={() => setComposerOpen(false)}
           onCreated={refresh}
+        />
+      )}
+
+      {assigneePrompt && (
+        <AssigneePrompt
+          prompt={assigneePrompt}
+          suggestedLogin={connection?.login ?? null}
+          onCancel={() => setAssigneePrompt(null)}
+          onSelect={(login) => {
+            const issue = assigneePrompt.issue;
+            setAssigneePrompt(null);
+            void persistMove(issue, "in_progress", [login]);
+          }}
         />
       )}
     </div>
@@ -458,7 +549,7 @@ function ConnectPrompt({
             Connect GitHub
           </button>
           <p className="github-empty-note">
-            Ember reads issues and creates new ones. It never edits or closes an existing issue.
+            Ember reads and creates issues. Moving cards updates assignment and status on GitHub.
           </p>
         </>
       ) : (
@@ -520,9 +611,39 @@ function RepoFilterBar({
   );
 }
 
-function Lane({ lane, issues }: { lane: LaneDefinition; issues: GitHubIssue[] }) {
+function Lane({
+  lane,
+  issues,
+  movingIssueKey,
+  onMove,
+}: {
+  lane: LaneDefinition;
+  issues: GitHubIssue[];
+  movingIssueKey: string | null;
+  onMove: (issue: GitHubIssue, lane: GitHubLane) => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+
+  function acceptDrop(event: DragEvent<HTMLElement>) {
+    event.preventDefault();
+    setDragOver(false);
+    try {
+      const issue = JSON.parse(event.dataTransfer.getData("application/json")) as GitHubIssue;
+      onMove(issue, lane.key);
+    } catch {
+      // Ignore unrelated drags entering the board.
+    }
+  }
+
   return (
-    <section className="github-lane">
+    <section
+      className={`github-lane${dragOver ? " github-lane--drop-target" : ""}`}
+      onDragOver={(event) => { event.preventDefault(); setDragOver(true); }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false);
+      }}
+      onDrop={acceptDrop}
+    >
       <header className="github-lane-header" title={lane.hint}>
         <h2>{lane.title}</h2>
         <span className="github-lane-count">{issues.length}</span>
@@ -531,16 +652,38 @@ function Lane({ lane, issues }: { lane: LaneDefinition; issues: GitHubIssue[] })
         {issues.length === 0 ? (
           <p className="github-lane-empty">Nothing here.</p>
         ) : (
-          issues.map((issue) => <IssueCard key={`${issue.repo_id}-${issue.id}`} issue={issue} />)
+          issues.map((issue) => (
+            <IssueCard
+              key={`${issue.repo_id}-${issue.id}`}
+              issue={issue}
+              moving={movingIssueKey === `${issue.repo_id}-${issue.id}`}
+              onMove={onMove}
+            />
+          ))
         )}
       </div>
     </section>
   );
 }
 
-function IssueCard({ issue }: { issue: GitHubIssue }) {
+function IssueCard({
+  issue,
+  moving,
+  onMove,
+}: {
+  issue: GitHubIssue;
+  moving: boolean;
+  onMove: (issue: GitHubIssue, lane: GitHubLane) => void;
+}) {
   return (
-    <article className="github-card">
+    <article
+      className={`github-card${moving ? " github-card--moving" : ""}`}
+      draggable={!moving}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("application/json", JSON.stringify(issue));
+      }}
+    >
       <div className="github-card-top">
         <span className="github-card-repo">{issue.repo_full_name}</span>
         <a
@@ -583,7 +726,66 @@ function IssueCard({ issue }: { issue: GitHubIssue }) {
           <time dateTime={issue.updated_at}>{relativeTime(issue.updated_at)}</time>
         </div>
       </footer>
+      <label className="github-card-move">
+        <span className="sr-only">Move issue #{issue.number}</span>
+        <select
+          value={issue.lane}
+          disabled={moving}
+          onChange={(event) => onMove(issue, event.target.value as GitHubLane)}
+          aria-label={`Move issue #${issue.number}`}
+        >
+          {LANES.map((lane) => <option key={lane.key} value={lane.key}>{lane.title}</option>)}
+        </select>
+      </label>
     </article>
+  );
+}
+
+function AssigneePrompt({
+  prompt,
+  suggestedLogin,
+  onCancel,
+  onSelect,
+}: {
+  prompt: { issue: GitHubIssue; options: GitHubUser[]; loading: boolean };
+  suggestedLogin: string | null;
+  onCancel: () => void;
+  onSelect: (login: string) => void;
+}) {
+  const options = [...prompt.options].sort((a, b) => {
+    if (a.login === suggestedLogin) return -1;
+    if (b.login === suggestedLogin) return 1;
+    return a.login.localeCompare(b.login);
+  });
+  return (
+    <div className="github-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="github-assignee-title">
+      <div className="github-modal github-assignee-modal">
+        <header className="github-modal-header">
+          <div>
+            <h2 id="github-assignee-title">Assign before starting</h2>
+            <p>Choose who is taking issue #{prompt.issue.number}.</p>
+          </div>
+          <button type="button" className="github-icon-button" onClick={onCancel} aria-label="Cancel"><X size={16} /></button>
+        </header>
+        <div className="github-modal-body">
+          {prompt.loading ? (
+            <div className="github-page--centered"><Loader2 className="github-spinner" size={20} /></div>
+          ) : options.length === 0 ? (
+            <p className="github-lane-empty">No assignable users were returned by GitHub.</p>
+          ) : (
+            <div className="github-assignee-options">
+              {options.map((user) => (
+                <button key={user.login} type="button" onClick={() => onSelect(user.login)}>
+                  <Avatar user={user} />
+                  <span>{user.name || user.login}</span>
+                  <small>@{user.login}{user.login === suggestedLogin ? " · You" : ""}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

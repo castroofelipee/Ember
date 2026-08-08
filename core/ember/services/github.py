@@ -366,6 +366,33 @@ async def create_issue(
     return replace(issue, repo_full_name=repo.full_name, repo_id=repo.repo_id)
 
 
+async def move_issue(
+    db: AsyncSession,
+    client: GitHubClient,
+    workspace_id: uuid.UUID,
+    *,
+    repo_id: int,
+    number: int,
+    lane: str,
+    assignees: Sequence[str],
+) -> GitHubIssue:
+    """Persist a lane transition using GitHub's real issue fields."""
+    repo = await get_tracked_repo(db, workspace_id, repo_id)
+    if lane == LANE_IN_PROGRESS and not assignees:
+        raise ValueError("In-progress issues must have at least one assignee.")
+
+    target_assignees = [] if lane == LANE_OPEN else assignees
+    issue = await client.update_issue(
+        repo.owner,
+        repo.name,
+        number,
+        state="closed" if lane == LANE_DONE else "open",
+        assignees=target_assignees,
+    )
+    invalidate_repo_cache(repo_id)
+    return replace(issue, repo_full_name=repo.full_name, repo_id=repo.repo_id)
+
+
 async def list_repo_labels(
     db: AsyncSession, client: GitHubClient, workspace_id: uuid.UUID, repo_id: int
 ) -> list[GitHubLabel]:

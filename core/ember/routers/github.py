@@ -31,6 +31,7 @@ from ember.schemas.github import (
     GitHubAuthorizeResponse,
     GitHubIssueCreateRequest,
     GitHubIssueListResponse,
+    GitHubIssueMoveRequest,
     GitHubIssueResponse,
     GitHubLabelResponse,
     GitHubRepoErrorResponse,
@@ -54,6 +55,7 @@ from ember.services.github import (
     list_repo_labels,
     list_tracked_repos,
     list_workspace_issues,
+    move_issue,
     track_repo,
     untrack_repo,
     upsert_connection,
@@ -501,6 +503,43 @@ async def create_workspace_issue(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="That repository is not tracked by this workspace.",
+        ) from exc
+    except GitHubError as exc:
+        raise _github_http_error(exc) from exc
+
+    return _issue_response(issue)
+
+
+@router.patch("/workspaces/{workspace_id}/github/issues/{repo_id}/{number}")
+async def move_workspace_issue(
+    workspace_id: uuid.UUID,
+    repo_id: int,
+    number: int,
+    data: GitHubIssueMoveRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    client: GitHubClient = Depends(_require_github_client),
+) -> GitHubIssueResponse:
+    await _require_membership(db, workspace_id, user.id)
+
+    try:
+        issue = await move_issue(
+            db,
+            client,
+            workspace_id,
+            repo_id=repo_id,
+            number=number,
+            lane=data.lane,
+            assignees=data.assignees,
+        )
+    except RepoNotTrackedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="That repository is not tracked by this workspace.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     except GitHubError as exc:
         raise _github_http_error(exc) from exc

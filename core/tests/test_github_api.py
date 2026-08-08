@@ -125,6 +125,7 @@ class FakeGitHubClient(GitHubClient):
         self.repos = repos or []
         self.errors = errors or {}
         self.created: list[dict] = []
+        self.updated: list[dict] = []
         self.list_calls: list[dict] = []
 
     async def get_viewer(self) -> GitHubUser:
@@ -179,6 +180,24 @@ class FakeGitHubClient(GitHubClient):
             body=body,
             assignees=[{"id": 1, "login": login} for login in assignees or []],
             labels=[{"name": name, "color": "d73a4a"} for name in labels or []],
+        )
+
+    async def update_issue(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        *,
+        state: str,
+        assignees: Sequence[str],
+    ) -> GitHubIssue:
+        self.updated.append(
+            {"repo": f"{owner}/{repo}", "number": number, "state": state, "assignees": list(assignees)}
+        )
+        return _make_issue(
+            number=number,
+            state=state,
+            assignees=[{"id": 9, "login": login} for login in assignees],
         )
 
     async def list_repo_labels(self, owner: str, repo: str) -> list[GitHubLabel]:
@@ -667,6 +686,73 @@ async def test_non_members_cannot_create_issues(client: AsyncClient) -> None:
 
     assert response.status_code == 404
     assert fake.created == []
+
+
+@pytest.mark.parametrize(
+    ("lane", "assignees", "state", "sent_assignees"),
+    [
+        ("open", ["ada"], "open", []),
+        ("in_progress", ["ada"], "open", ["ada"]),
+        ("done", ["ada"], "closed", ["ada"]),
+    ],
+)
+async def test_move_issue_maps_lanes_to_github_fields(
+    client: AsyncClient,
+    lane: str,
+    assignees: list[str],
+    state: str,
+    sent_assignees: list[str],
+) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    await _track_repo(client, token, workspace_id)
+    fake = FakeGitHubClient()
+    _use_fake_client(fake)
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/github/issues/101/7",
+        headers=_auth_header(token),
+        json={"lane": lane, "assignees": assignees},
+    )
+
+    assert response.status_code == 200
+    assert fake.updated == [
+        {"repo": "acme/rocket", "number": 7, "state": state, "assignees": sent_assignees}
+    ]
+    assert response.json()["lane"] == lane
+
+
+async def test_move_to_in_progress_requires_an_assignee(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    await _track_repo(client, token, workspace_id)
+    fake = FakeGitHubClient()
+    _use_fake_client(fake)
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/github/issues/101/7",
+        headers=_auth_header(token),
+        json={"lane": "in_progress", "assignees": []},
+    )
+
+    assert response.status_code == 422
+    assert fake.updated == []
+
+
+async def test_move_issue_rejects_an_untracked_repository(client: AsyncClient) -> None:
+    token = await _signup(client)
+    workspace_id = await _make_workspace(client, token)
+    fake = FakeGitHubClient()
+    _use_fake_client(fake)
+
+    response = await client.patch(
+        f"{WORKSPACES_URL}/{workspace_id}/github/issues/999/7",
+        headers=_auth_header(token),
+        json={"lane": "done", "assignees": []},
+    )
+
+    assert response.status_code == 404
+    assert fake.updated == []
 
 
 

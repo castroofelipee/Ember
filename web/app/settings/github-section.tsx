@@ -113,8 +113,8 @@ export function GitHubSection() {
     <section className="settings-section">
       <h2 className="settings-section-title">GitHub</h2>
       <p className="settings-section-hint">
-        Read issues from your repositories and file new ones from inside Ember. Ember never edits
-        or closes an existing issue.
+        Read and create issues from inside Ember. Moving cards updates assignment and status on
+        GitHub.
       </p>
 
       {notice && (

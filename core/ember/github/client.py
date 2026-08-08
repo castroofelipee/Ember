@@ -216,6 +216,18 @@ class GitHubClient(ABC):
         """File a new issue."""
 
     @abstractmethod
+    async def update_issue(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        *,
+        state: Literal["open", "closed"],
+        assignees: Sequence[str],
+    ) -> GitHubIssue:
+        """Update the provider fields that determine an Ember board lane."""
+
+    @abstractmethod
     async def list_repo_labels(self, owner: str, repo: str) -> list[GitHubLabel]:
         """Labels defined on a repository, for the new-issue picker."""
 
@@ -365,6 +377,22 @@ class RestGitHubClient(GitHubClient):
 
         created = await self._request("POST", f"/repos/{owner}/{repo}/issues", json=payload)
         return _parse_issue(created)
+
+    async def update_issue(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        *,
+        state: Literal["open", "closed"],
+        assignees: Sequence[str],
+    ) -> GitHubIssue:
+        updated = await self._request(
+            "PATCH",
+            f"/repos/{owner}/{repo}/issues/{number}",
+            json={"state": state, "assignees": list(assignees)},
+        )
+        return _parse_issue(updated)
 
     async def list_repo_labels(self, owner: str, repo: str) -> list[GitHubLabel]:
         payload = await self._request(

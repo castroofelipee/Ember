@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -138,3 +139,13 @@ class GitHubIssueCreateRequest(BaseModel):
                 items.append(stripped)
                 seen.add(key)
         return items
+
+
+class GitHubIssueMoveRequest(BaseModel):
+    lane: Literal["open", "in_progress", "done"]
+    assignees: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("assignees")
+    @classmethod
+    def normalize_assignees(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(item.strip() for item in value if item.strip()))

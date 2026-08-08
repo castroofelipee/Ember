@@ -138,9 +138,10 @@ three lanes anyway, because a two-lane board is not useful:
 | Done | closed |
 
 Assignment is the closest honest proxy for "someone picked this up". The UI says
-so in the lane's tooltip rather than implying GitHub tracks it. Cards are not
-draggable, since a drag that silently failed to sync would be worse than no drag
-at all.
+so in the lane's tooltip rather than implying GitHub tracks it. Moving a card
+updates GitHub directly: entering In progress assigns a user, Open clears
+assignees, and Done closes the issue. The UI rolls an optimistic move back if
+GitHub rejects it.
 
 ---
 
