@@ -262,6 +262,7 @@ class BoardCardCreateWithEntityRequest(BaseModel):
     content: str = Field(default="", max_length=100_000)
     labels: list[str] = Field(default_factory=list, max_length=30)
     assignees: list[str] = Field(default_factory=list, max_length=30)
+    assignee_ids: list[uuid.UUID] = Field(default_factory=list, max_length=30)
     due_date: str = Field(default="", max_length=40)
     recurrence: Literal["none", "daily"] = "none"
     checklist: list[dict] = Field(default_factory=list)

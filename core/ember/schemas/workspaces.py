@@ -25,6 +25,15 @@ class WorkspaceResponse(BaseModel):
     created_at: datetime
 
 
+class WorkspaceMemberResponse(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    display_name: str
+    email: str
+    avatar_url: str | None
+    role: str
+
+
 class HolidaySettingsUpdateRequest(BaseModel):
     enabled: bool
     provider: Literal["calendarific", "openholidays"]

@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ember.models import UserPreferences, Workspace, WorkspaceMember, WorkspaceRole
+from ember.models import User, UserPreferences, Workspace, WorkspaceMember, WorkspaceRole
 from ember.schemas.workspaces import WorkspaceCreateRequest
 
 
@@ -57,3 +57,17 @@ async def assert_workspace_member(
     ).scalar_one_or_none()
     if member is None:
         raise NotAWorkspaceMemberError()
+
+
+async def list_workspace_members(
+    session: AsyncSession, workspace_id: uuid.UUID
+) -> list[tuple[WorkspaceMember, User]]:
+    rows = (
+        await session.execute(
+            select(WorkspaceMember, User)
+            .join(User, User.id == WorkspaceMember.user_id)
+            .where(WorkspaceMember.workspace_id == workspace_id)
+            .order_by(User.display_name, User.email)
+        )
+    ).all()
+    return [(member, user) for member, user in rows]
