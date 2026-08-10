@@ -6019,8 +6019,10 @@ button.mini-calendar-day--selected:hover {
 
 .reading-cover-upload {
   display: flex;
+  flex: 0 0 auto;
   align-self: center;
   width: 9rem;
+  min-height: 13.5rem;
   aspect-ratio: 2 / 3;
   align-items: center;
   justify-content: center;
