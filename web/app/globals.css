@@ -3665,8 +3665,11 @@ button.mini-calendar-day--selected:hover {
 
 /*
  * Week view: Google-Calendar-style layout that fills the workspace main area.
- * Sticky day header + all-day row above a scrollable 24-hour grid. Same fixed
- * dark theme (#121212 surface, #21103b accent) as the rest of the app.
+ * Built mobile-first — a single scroll container holds the sticky day header,
+ * all-day row, and 24-hour grid so they stay aligned while the columns scroll
+ * sideways on narrow screens. Wider viewports drop the sideways scroll and get
+ * the roomier desktop spacing. Same fixed dark theme (#121212 surface, #21103b
+ * accent) as the rest of the app.
  */
 
 .calendar-main {
@@ -3679,6 +3682,8 @@ button.mini-calendar-day--selected:hover {
 }
 
 .week-view {
+  --week-gutter: 3rem;
+  --week-column-min: 4.75rem;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -3687,15 +3692,14 @@ button.mini-calendar-day--selected:hover {
 
 .week-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.1rem 1.5rem;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.8rem 1rem;
 }
 
 .week-title {
   margin: 0;
-  font-size: 1.9rem;
+  font-size: 1.35rem;
   font-weight: 700;
   color: #f5f5f5;
   letter-spacing: -0.02em;
@@ -3716,8 +3720,8 @@ button.mini-calendar-day--selected:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -3732,7 +3736,7 @@ button.mini-calendar-day--selected:hover {
 }
 
 .week-today-button {
-  padding: 0.4rem 0.9rem;
+  padding: 0.55rem 1rem;
   border: 1px solid #2e2e2e;
   border-radius: 999px;
   background: transparent;
@@ -3753,14 +3757,14 @@ button.mini-calendar-day--selected:hover {
 .week-view-toggle {
   display: inline-flex;
   padding: 0.15rem;
-  margin-right: 0.35rem;
+  margin-right: auto;
   border: 1px solid #2e2e2e;
   border-radius: 999px;
   background: #1a1a1a;
 }
 
 .week-view-toggle-button {
-  padding: 0.3rem 0.85rem;
+  padding: 0.45rem 1rem;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -3782,10 +3786,37 @@ button.mini-calendar-day--selected:hover {
   color: #f5f5f5;
 }
 
-/* Shared 7-column grid so the header, all-day row, and body stay aligned. */
+/* One scroller for both axes, so the sticky header and gutter never drift out
+   of alignment with the columns they label. */
+.week-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.week-grid:focus-visible {
+  outline: 2px solid #6b21a8;
+  outline-offset: -2px;
+}
+
+.week-grid-inner {
+  position: relative;
+  min-width: 100%;
+  width: calc(var(--week-gutter) + var(--week-columns, 7) * var(--week-column-min));
+}
+
+/* Shared column template so the header, all-day row, and body stay aligned. */
 .week-columns {
   display: grid;
-  grid-template-columns: 4rem repeat(7, minmax(0, 1fr));
+  grid-template-columns: var(--week-gutter) repeat(var(--week-columns, 7), minmax(0, 1fr));
+}
+
+.week-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #121212;
 }
 
 .week-daybar {
@@ -3793,7 +3824,12 @@ button.mini-calendar-day--selected:hover {
   border-bottom: 1px solid #2a2a2a;
 }
 
-.week-gutter-cell {
+.week-gutter-cell,
+.week-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #121212;
   border-right: 1px solid #2a2a2a;
 }
 
@@ -3801,13 +3837,13 @@ button.mini-calendar-day--selected:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   padding: 0.55rem 0;
   border-right: 1px solid #2a2a2a;
 }
 
 .week-dayhead-name {
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   color: #a1a1a1;
 }
 
@@ -3851,18 +3887,8 @@ button.mini-calendar-day--selected:hover {
   border-right: 1px solid #2a2a2a;
 }
 
-.week-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
 .week-body {
   position: relative;
-}
-
-.week-gutter {
-  border-right: 1px solid #2a2a2a;
 }
 
 .week-gutter-hour {
@@ -3872,14 +3898,17 @@ button.mini-calendar-day--selected:hover {
 .week-gutter-time {
   position: absolute;
   top: -0.55rem;
-  right: 0.5rem;
-  font-size: 0.68rem;
+  right: 0.4rem;
+  font-size: 0.65rem;
   color: #7a7a7a;
   white-space: nowrap;
 }
 
+/* The stacking context keeps event blocks from painting over the sticky
+   time gutter and day header. */
 .week-col {
   position: relative;
+  z-index: 0;
   border-right: 1px solid #2a2a2a;
 }
 
@@ -4038,12 +4067,77 @@ button.mini-calendar-day--selected:hover {
   font-size: 0.66rem;
 }
 
+/* Blocks too short for a second line fold the time onto the title row. */
+.week-event-time-small {
+  margin-left: 0.35rem;
+  opacity: 0.85;
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
 .week-empty-hint {
   margin: 0;
-  padding: 0.6rem 1.5rem;
+  padding: 0.6rem 1rem;
   border-top: 1px solid #2a2a2a;
   font-size: 0.82rem;
   color: #7a7a7a;
+}
+
+@media (min-width: 48rem) {
+  .week-view {
+    --week-gutter: 4rem;
+    --week-column-min: 0rem;
+  }
+
+  .week-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.1rem 1.5rem;
+  }
+
+  .week-title {
+    font-size: 1.9rem;
+  }
+
+  .week-nav-button {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .week-today-button {
+    padding: 0.4rem 0.9rem;
+  }
+
+  .week-view-toggle {
+    margin-right: 0.35rem;
+  }
+
+  .week-view-toggle-button {
+    padding: 0.3rem 0.85rem;
+  }
+
+  .week-grid {
+    overflow-x: hidden;
+  }
+
+  .week-dayhead {
+    gap: 0.5rem;
+  }
+
+  .week-dayhead-name {
+    font-size: 0.8rem;
+  }
+
+  .week-gutter-time {
+    right: 0.5rem;
+    font-size: 0.68rem;
+  }
+
+  .week-empty-hint {
+    padding: 0.6rem 1.5rem;
+  }
 }
 
 .reminder-permission,

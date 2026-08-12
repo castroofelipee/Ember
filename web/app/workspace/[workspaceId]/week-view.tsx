@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import {
@@ -247,9 +247,9 @@ export function WeekView({
     return Array.from({ length: 7 }, (_, i) => new Date(weekStart.getTime() + i * DAY_MS));
   }, [isDay, date, week_starts_on]);
 
-  // Column template shared by every row so the header, all-day row, and body
-  // stay aligned whether there are 7 columns or 1.
-  const columnStyle = { gridTemplateColumns: `4rem repeat(${days.length}, minmax(0, 1fr))` };
+  // Column count shared by every row so the header, all-day row, and body stay
+  // aligned whether there are 7 columns or 1.
+  const gridStyle = { "--week-columns": days.length } as CSSProperties;
 
   const visibleEvents = useMemo(
     () =>
@@ -462,244 +462,253 @@ export function WeekView({
         </div>
       </header>
 
-      <div className="week-columns week-daybar" style={columnStyle}>
-        <div className="week-gutter-cell" />
-        {days.map((day) => {
-          const isToday = isSameDay(day, today);
-          return (
-            <div className="week-dayhead" key={day.toISOString()}>
-              <span className="week-dayhead-name">{WEEKDAYS[day.getDay()]}</span>
-              <span className={`week-dayhead-date${isToday ? " week-dayhead-date--today" : ""}`}>
-                {day.getDate()}
-              </span>
+      <div
+        className="week-grid"
+        ref={scrollRef}
+        role="region"
+        aria-label={isDay ? "Day schedule" : "Week schedule"}
+        tabIndex={0}
+      >
+        <div className="week-grid-inner" style={gridStyle}>
+          <div className="week-head">
+            <div className="week-columns week-daybar">
+              <div className="week-gutter-cell" />
+              {days.map((day) => {
+                const isToday = isSameDay(day, today);
+                return (
+                  <div className="week-dayhead" key={day.toISOString()}>
+                    <span className="week-dayhead-name">{WEEKDAYS[day.getDay()]}</span>
+                    <span
+                      className={`week-dayhead-date${isToday ? " week-dayhead-date--today" : ""}`}
+                    >
+                      {day.getDate()}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
-      </div>
 
-      <div className="week-columns week-allday" style={columnStyle}>
-        <div className="week-gutter-cell week-allday-label">all-day</div>
-        {days.map((day) => {
-          const dayAllDay = visibleEvents.filter(
-            (event) => event.allDay && isSameDay(event.start, day),
-          );
-          return (
-            <div className="week-allday-cell" key={day.toISOString()}>
-              {dayAllDay.map((event) => (
-                <div
-                  className="week-event week-event--allday"
-                  key={`${event.id}-${event.start.getTime()}`}
-                  style={{
-                    background: hexToRgba(event.color, 0.32),
-                    borderLeft: `3px solid ${event.color}`,
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onEventClick?.(event, e.currentTarget.getBoundingClientRect());
-                  }}
-                >
-                  {event.title}
+            <div className="week-columns week-allday">
+              <div className="week-gutter-cell week-allday-label">all-day</div>
+              {days.map((day) => {
+                const dayAllDay = visibleEvents.filter(
+                  (event) => event.allDay && isSameDay(event.start, day),
+                );
+                return (
+                  <div className="week-allday-cell" key={day.toISOString()}>
+                    {dayAllDay.map((event) => (
+                      <div
+                        className="week-event week-event--allday"
+                        key={`${event.id}-${event.start.getTime()}`}
+                        style={{
+                          background: hexToRgba(event.color, 0.32),
+                          borderLeft: `3px solid ${event.color}`,
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEventClick?.(event, e.currentTarget.getBoundingClientRect());
+                        }}
+                      >
+                        {event.title}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="week-columns week-body" style={{ height: 24 * HOUR_PX }}>
+            <div className="week-gutter">
+              {Array.from({ length: 24 }, (_, hour) => (
+                <div className="week-gutter-hour" key={hour} style={{ height: HOUR_PX }}>
+                  {hour > 0 && (
+                    <span className="week-gutter-time">{formatHour(hour, time_format)}</span>
+                  )}
                 </div>
               ))}
             </div>
-          );
-        })}
-      </div>
 
-      <div className="week-scroll" ref={scrollRef}>
-        <div
-          className="week-columns week-body"
-          style={{ ...columnStyle, height: 24 * HOUR_PX }}
-        >
-          <div className="week-gutter">
-            {Array.from({ length: 24 }, (_, hour) => (
-              <div className="week-gutter-hour" key={hour} style={{ height: HOUR_PX }}>
-                {hour > 0 && (
-                  <span className="week-gutter-time">{formatHour(hour, time_format)}</span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {days.map((day, dayIndex) => {
-            const isToday = isSameDay(day, today);
-            const dayEvents = visibleEvents.filter(
-              (event) =>
-                !event.allDay &&
-                isSameDay(
-                  dragging?.eventKey === eventKey(event) ? dragging.previewStart : event.start,
-                  day,
-                ),
-            );
-            return (
-              <div
-                className="week-col"
-                key={day.toISOString()}
-                data-week-day-index={dayIndex}
-                onClick={(e) => {
-                  if (suppressSlotClickRef.current) {
-                    suppressSlotClickRef.current = false;
-                    return;
-                  }
-                  if (!onSlotClick) return;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const hour = Math.max(
-                    0,
-                    Math.min(23, Math.floor((e.clientY - rect.top) / HOUR_PX)),
-                  );
-                  onSlotClick(new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour));
-                }}
-              >
-                {work_day_start > 0 && (
-                  <div
-                    className="week-offhours"
-                    style={{ top: 0, height: work_day_start * HOUR_PX }}
-                  />
-                )}
-                {work_day_end < 24 && (
-                  <div
-                    className="week-offhours"
-                    style={{ top: work_day_end * HOUR_PX, height: (24 - work_day_end) * HOUR_PX }}
-                  />
-                )}
-
-                {Array.from({ length: 24 }, (_, hour) => (
-                  <div className="week-hour" key={hour} style={{ height: HOUR_PX }} />
-                ))}
-
-                {isToday && (
-                  <div className="week-now" style={{ top: nowOffset }}>
-                    <span className="week-now-dot" />
-                  </div>
-                )}
-
-                {layoutDayEvents(
-                  dayEvents.map((event) => {
-                    const key = eventKey(event);
-                    const preview =
-                      dragging?.eventKey === key
-                        ? { start: dragging.previewStart, end: dragging.previewEnd }
-                        : resizing?.eventKey === key
-                          ? { start: resizing.previewStart, end: resizing.previewEnd }
-                          : null;
-                    return {
-                      event,
-                      key,
-                      displayStart: preview?.start ?? event.start,
-                      displayEnd: preview?.end ?? event.end,
-                    };
-                  }),
-                ).map(({ event, key, displayStart, displayEnd, stackIndex }) => {
-                  const top =
-                    (displayStart.getHours() * 60 + displayStart.getMinutes()) / 60 * HOUR_PX;
-                  const height = Math.max(
-                    (displayEnd.getTime() - displayStart.getTime()) / 3_600_000 * HOUR_PX,
-                    18,
-                  );
-                  const draggable = !event.allDay && Boolean(onEventMove);
-                  const active =
-                    dragging?.eventKey === key || resizing?.eventKey === key;
-                  return (
+            {days.map((day, dayIndex) => {
+              const isToday = isSameDay(day, today);
+              const dayEvents = visibleEvents.filter(
+                (event) =>
+                  !event.allDay &&
+                  isSameDay(
+                    dragging?.eventKey === eventKey(event) ? dragging.previewStart : event.start,
+                    day,
+                  ),
+              );
+              return (
+                <div
+                  className="week-col"
+                  key={day.toISOString()}
+                  data-week-day-index={dayIndex}
+                  onClick={(e) => {
+                    if (suppressSlotClickRef.current) {
+                      suppressSlotClickRef.current = false;
+                      return;
+                    }
+                    if (!onSlotClick) return;
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const hour = Math.max(
+                      0,
+                      Math.min(23, Math.floor((e.clientY - rect.top) / HOUR_PX)),
+                    );
+                    onSlotClick(new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour));
+                  }}
+                >
+                  {work_day_start > 0 && (
                     <div
-                      className={`week-event${dragging?.eventKey === key ? " week-event--dragging" : ""}${
-                        resizing?.eventKey === key ? " week-event--resizing" : ""
-                      }${
-                        draggable ? " week-event--draggable" : ""
-                      }${stackIndex > 0 ? " week-event--stacked" : ""}`}
-                      key={key}
-                      style={{
-                        top,
-                        height,
-                        left: 2 + stackIndex * STACK_OFFSET_PX,
-                        zIndex: active ? 20 : 1 + stackIndex,
-                        background: hexToRgba(
-                          event.color,
-                          stackIndex > 0 ? Math.min(0.94, 0.78 + stackIndex * 0.06) : 0.24,
-                        ),
-                        borderLeftColor: event.color,
-                      }}
-                      onPointerDown={(e) => {
-                        if (!draggable || e.button !== 0) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const resizeZone = Math.min(12, rect.height / 3);
-                        const edge =
-                          e.clientY - rect.top <= resizeZone
-                            ? "start"
-                            : rect.bottom - e.clientY <= resizeZone
-                              ? "end"
-                              : null;
-                        if (edge) {
-                          const column = e.currentTarget.closest<HTMLElement>("[data-week-day-index]");
-                          if (!column) return;
-                          setResizing({
+                      className="week-offhours"
+                      style={{ top: 0, height: work_day_start * HOUR_PX }}
+                    />
+                  )}
+                  {work_day_end < 24 && (
+                    <div
+                      className="week-offhours"
+                      style={{ top: work_day_end * HOUR_PX, height: (24 - work_day_end) * HOUR_PX }}
+                    />
+                  )}
+
+                  {Array.from({ length: 24 }, (_, hour) => (
+                    <div className="week-hour" key={hour} style={{ height: HOUR_PX }} />
+                  ))}
+
+                  {isToday && (
+                    <div className="week-now" style={{ top: nowOffset }}>
+                      <span className="week-now-dot" />
+                    </div>
+                  )}
+
+                  {layoutDayEvents(
+                    dayEvents.map((event) => {
+                      const key = eventKey(event);
+                      const preview =
+                        dragging?.eventKey === key
+                          ? { start: dragging.previewStart, end: dragging.previewEnd }
+                          : resizing?.eventKey === key
+                            ? { start: resizing.previewStart, end: resizing.previewEnd }
+                            : null;
+                      return {
+                        event,
+                        key,
+                        displayStart: preview?.start ?? event.start,
+                        displayEnd: preview?.end ?? event.end,
+                      };
+                    }),
+                  ).map(({ event, key, displayStart, displayEnd, stackIndex }) => {
+                    const top =
+                      (displayStart.getHours() * 60 + displayStart.getMinutes()) / 60 * HOUR_PX;
+                    const height = Math.max(
+                      (displayEnd.getTime() - displayStart.getTime()) / 3_600_000 * HOUR_PX,
+                      18,
+                    );
+                    const draggable = !event.allDay && Boolean(onEventMove);
+                    const active =
+                      dragging?.eventKey === key || resizing?.eventKey === key;
+                    return (
+                      <div
+                        className={`week-event${dragging?.eventKey === key ? " week-event--dragging" : ""}${
+                          resizing?.eventKey === key ? " week-event--resizing" : ""
+                        }${
+                          draggable ? " week-event--draggable" : ""
+                        }${stackIndex > 0 ? " week-event--stacked" : ""}`}
+                        key={key}
+                        style={{
+                          top,
+                          height,
+                          left: 2 + stackIndex * STACK_OFFSET_PX,
+                          zIndex: active ? 20 : 1 + stackIndex,
+                          background: hexToRgba(
+                            event.color,
+                            stackIndex > 0 ? Math.min(0.94, 0.78 + stackIndex * 0.06) : 0.24,
+                          ),
+                          borderLeftColor: event.color,
+                        }}
+                        onPointerDown={(e) => {
+                          if (!draggable || e.button !== 0) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const resizeZone = Math.min(12, rect.height / 3);
+                          const edge =
+                            e.clientY - rect.top <= resizeZone
+                              ? "start"
+                              : rect.bottom - e.clientY <= resizeZone
+                                ? "end"
+                                : null;
+                          if (edge) {
+                            const column = e.currentTarget.closest<HTMLElement>("[data-week-day-index]");
+                            if (!column) return;
+                            setResizing({
+                              eventKey: key,
+                              event,
+                              pointerId: e.pointerId,
+                              edge,
+                              initialClientY: e.clientY,
+                              columnTop: column.getBoundingClientRect().top,
+                              dayStart: startOfDay(event.start),
+                              previewStart: event.start,
+                              previewEnd: event.end,
+                              resized: false,
+                            });
+                            return;
+                          }
+                          const durationMinutes = Math.max(
+                            DRAG_SNAP_MINUTES,
+                            Math.round((event.end.getTime() - event.start.getTime()) / MINUTE_MS),
+                          );
+                          setDragging({
                             eventKey: key,
                             event,
                             pointerId: e.pointerId,
-                            edge,
+                            initialClientX: e.clientX,
                             initialClientY: e.clientY,
-                            columnTop: column.getBoundingClientRect().top,
-                            dayStart: startOfDay(event.start),
+                            startOffsetMinutes: ((e.clientY - rect.top) / HOUR_PX) * 60,
+                            durationMinutes,
                             previewStart: event.start,
                             previewEnd: event.end,
-                            resized: false,
+                            dragged: false,
                           });
-                          return;
-                        }
-                        const durationMinutes = Math.max(
-                          DRAG_SNAP_MINUTES,
-                          Math.round((event.end.getTime() - event.start.getTime()) / MINUTE_MS),
-                        );
-                        setDragging({
-                          eventKey: key,
-                          event,
-                          pointerId: e.pointerId,
-                          initialClientX: e.clientX,
-                          initialClientY: e.clientY,
-                          startOffsetMinutes: ((e.clientY - rect.top) / HOUR_PX) * 60,
-                          durationMinutes,
-                          previewStart: event.start,
-                          previewEnd: event.end,
-                          dragged: false,
-                        });
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (suppressClickRef.current === key) {
-                          suppressClickRef.current = null;
-                          return;
-                        }
-                        onEventClick?.(event, e.currentTarget.getBoundingClientRect());
-                      }}
-                    >
-                      <span className="week-event-title">{event.title}</span>
-                      {height > 32 && (
-                        <span className="week-event-time">
-                          {formatClock(displayStart, time_format)} – {formatClock(displayEnd, time_format)}
-                        </span>
-                      )}
-                      {height <= 32 && (
-                        <span className="week-event-time-small">
-                          {formatClock(displayStart, time_format)} – {formatClock(displayEnd, time_format)}
-                        </span>
-                      )}
-                      {draggable && (
-                        <>
-                          <span
-                            className="week-event-resize-handle week-event-resize-handle--start"
-                          />
-                          <span
-                            className="week-event-resize-handle week-event-resize-handle--end"
-                          />
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (suppressClickRef.current === key) {
+                            suppressClickRef.current = null;
+                            return;
+                          }
+                          onEventClick?.(event, e.currentTarget.getBoundingClientRect());
+                        }}
+                      >
+                        <span className="week-event-title">{event.title}</span>
+                        {height > 32 && (
+                          <span className="week-event-time">
+                            {formatClock(displayStart, time_format)} – {formatClock(displayEnd, time_format)}
+                          </span>
+                        )}
+                        {height <= 32 && (
+                          <span className="week-event-time-small">
+                            {formatClock(displayStart, time_format)} – {formatClock(displayEnd, time_format)}
+                          </span>
+                        )}
+                        {draggable && (
+                          <>
+                            <span
+                              className="week-event-resize-handle week-event-resize-handle--start"
+                            />
+                            <span
+                              className="week-event-resize-handle week-event-resize-handle--end"
+                            />
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
