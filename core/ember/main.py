@@ -10,6 +10,7 @@ from ember.routers.github import router as github_router
 from ember.routers.invites import router as invites_router
 from ember.routers.knowledge import router as knowledge_router
 from ember.routers.mail import router as mail_router
+from ember.routers.users import router as users_router
 from ember.routers.workspaces import router as workspaces_router
 from ember.routers.personal import router as personal_router
 
@@ -33,5 +34,6 @@ app.include_router(github_router)
 app.include_router(invites_router)
 app.include_router(knowledge_router)
 app.include_router(mail_router)
+app.include_router(users_router)
 app.include_router(workspaces_router)
 app.include_router(personal_router)
