@@ -71,3 +71,18 @@ async def upload_avatar(
     user.avatar_url = avatar_url
     await db.flush()
     return CurrentUserResponse.model_validate(user)
+
+
+@router.delete("/me/avatar")
+async def delete_avatar(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> CurrentUserResponse:
+    if user.avatar_url and env["CLOUDINARY_URL"]:
+        configure_cloudinary()
+        await run_in_threadpool(
+            cloudinary.uploader.destroy, avatar_public_id(user.id), invalidate=True
+        )
+    user.avatar_url = None
+    await db.flush()
+    return CurrentUserResponse.model_validate(user)
