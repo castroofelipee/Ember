@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { AlignLeft, CalendarDays, MapPin, Pencil, Repeat, Trash2, Users, X } from "lucide-react";
 
 import type { RecurrenceRule, TimeFormat } from "@/lib/types";
+import { EXPANDED_LAYOUT, useMediaQuery } from "@/lib/use-media-query";
 
 import type { WeekEvent } from "./week-view";
 
@@ -102,13 +103,15 @@ export function EventDetail({
   deleting,
 }: EventDetailProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const isExpanded = useMediaQuery(EXPANDED_LAYOUT);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
-  // Place beside the anchor, flipping to its other side and clamping to the
-  // viewport so the card never spills off screen.
+  // Narrow screens get a full-width bottom sheet, so there is nothing to anchor.
+  // Wider ones place the card beside the anchor, flipping to its other side and
+  // clamping to the viewport so it never spills off screen.
   useLayoutEffect(() => {
     const card = cardRef.current;
-    if (!card) return;
+    if (!isExpanded || !card) return;
     const { width, height } = card.getBoundingClientRect();
     const margin = 8;
 
@@ -120,7 +123,9 @@ export function EventDetail({
     top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
 
     setPos({ top, left });
-  }, [anchor]);
+  }, [anchor, isExpanded]);
+
+  const anchored = isExpanded ? pos : null;
 
   const timeLine = event.allDay
     ? `${longDate(event.start)} · All day`
@@ -134,7 +139,9 @@ export function EventDetail({
         role="dialog"
         aria-modal="true"
         aria-label={event.title}
-        style={pos ? { top: pos.top, left: pos.left, visibility: "visible" } : undefined}
+        style={
+          anchored ? { top: anchored.top, left: anchored.left, visibility: "visible" } : undefined
+        }
         onClick={(e) => e.stopPropagation()}
       >
         <div className="event-detail-actions">

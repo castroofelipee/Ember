@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 import { apiFetch, useRequireAuth } from "@/lib/auth-client";
+import { EXPANDED_LAYOUT, useMediaQuery } from "@/lib/use-media-query";
 import {
   DEFAULT_CALENDAR_COLOR,
   type Calendar,
@@ -49,7 +50,7 @@ export function WorkspaceView() {
   // Focused day shared by the mini-calendar and the main view; `view` toggles
   // between the full week and a single-day view of that day.
   const [focusDate, setFocusDate] = useState<Date>(() => new Date());
-  const [view, setView] = useState<CalendarView>("week");
+  const [chosenView, setChosenView] = useState<CalendarView | null>(null);
   const [events, setEvents] = useState<WeekEvent[]>([]);
   const [dialog, setDialog] = useState<DialogState>({ open: false });
   const [selected, setSelected] = useState<SelectedEvent | null>(null);
@@ -57,9 +58,13 @@ export function WorkspaceView() {
   const [editDialog, setEditDialog] = useState<EditDialogState>({ open: false });
   const [deleting, setDeleting] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarPinned, setSidebarPinned] = useState<boolean | null>(null);
   // Remember the span currently on screen so we can refetch after creating.
   const rangeRef = useRef<{ start: Date; end: Date } | null>(null);
+
+  const isExpanded = useMediaQuery(EXPANDED_LAYOUT);
+  const view = chosenView ?? (isExpanded ? "week" : "day");
+  const sidebarOpen = sidebarPinned ?? isExpanded;
 
   // Per-calendar color/name, so events with no color override fall back to their
   // calendar's color (then the global default), and the detail popover can name
@@ -319,7 +324,7 @@ export function WorkspaceView() {
       <AppHeader
         workspaceId={workspaceId}
         sidebarOpen={sidebarOpen}
-        onToggleSidebar={() => setSidebarOpen((value) => !value)}
+        onToggleSidebar={() => setSidebarPinned(!sidebarOpen)}
       />
       <div className="workspace-content">
         <Sidebar
@@ -327,9 +332,10 @@ export function WorkspaceView() {
           hiddenCalendarIds={hiddenCalendarIds}
           selectedDate={focusDate}
           open={sidebarOpen}
+          onClose={() => setSidebarPinned(false)}
           onSelectDay={(date) => {
             setFocusDate(date);
-            setView("day");
+            setChosenView("day");
           }}
           onCreateEvent={() => setDialog({ open: true })}
           onToggleCalendar={toggleCalendar}
@@ -343,7 +349,7 @@ export function WorkspaceView() {
             events={events}
             hiddenCalendarIds={hiddenCalendarIds}
             onDateChange={setFocusDate}
-            onViewChange={setView}
+            onViewChange={setChosenView}
             onVisibleRangeChange={handleVisibleRangeChange}
             onSlotClick={(start) => setDialog({ open: true, initialStart: start })}
             onEventClick={(event, anchor) => setSelected({ event, anchor })}

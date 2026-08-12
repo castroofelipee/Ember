@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   ChevronDown,
   Plus,
   Search,
+  X,
 } from "lucide-react";
 
 import type { Calendar } from "@/lib/types";
+import { EXPANDED_LAYOUT, useMediaQuery } from "@/lib/use-media-query";
 
 import { MiniCalendar } from "./mini-calendar";
 
@@ -20,6 +22,7 @@ type SidebarProps = {
   onCreateEvent: () => void;
   onToggleCalendar: (id: string) => void;
   open: boolean;
+  onClose: () => void;
 };
 
 export function Sidebar({
@@ -30,36 +33,86 @@ export function Sidebar({
   onCreateEvent,
   onToggleCalendar,
   open,
+  onClose,
 }: SidebarProps) {
+  const isExpanded = useMediaQuery(EXPANDED_LAYOUT);
+  const isDrawer = !isExpanded;
+
+  useEffect(() => {
+    if (!isDrawer || !open) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isDrawer, open, onClose]);
+
   return (
-    <aside className={`sidebar${open ? "" : " sidebar--collapsed"}`}>
-      <button type="button" className="sidebar-create-button" onClick={onCreateEvent}>
-        <Plus size={18} />
-        {open && <span>Create event</span>}
-      </button>
-
-      {open && (
-        <>
-          <MiniCalendar selectedDate={selectedDate} onSelectDay={onSelectDay} />
-
-          <div className="sidebar-search">
-            <Search size={16} />
-            <input
-              type="search"
-              className="sidebar-search-input"
-              placeholder="Search for people"
-            />
-          </div>
-
-          <MyCalendars
-            calendars={calendars}
-            hiddenCalendarIds={hiddenCalendarIds}
-            onToggleCalendar={onToggleCalendar}
-          />
-        </>
+    <>
+      {isDrawer && open && (
+        <div className="sidebar-scrim" onClick={onClose} aria-hidden="true" />
       )}
 
-    </aside>
+      <aside
+        className={`sidebar${open ? "" : " sidebar--collapsed"}`}
+        aria-label="Calendar controls"
+        inert={isDrawer && !open}
+      >
+        <div className="sidebar-drawer-top">
+          <button
+            type="button"
+            className="sidebar-create-button"
+            onClick={() => {
+              onCreateEvent();
+              if (isDrawer) onClose();
+            }}
+          >
+            <Plus size={18} />
+            {open && <span>Create event</span>}
+          </button>
+
+          {isDrawer && (
+            <button
+              type="button"
+              className="sidebar-drawer-close"
+              aria-label="Close calendar controls"
+              onClick={onClose}
+            >
+              <X size={20} />
+            </button>
+          )}
+        </div>
+
+        {open && (
+          <>
+            <MiniCalendar
+              selectedDate={selectedDate}
+              onSelectDay={(date) => {
+                onSelectDay(date);
+                if (isDrawer) onClose();
+              }}
+            />
+
+            <div className="sidebar-search">
+              <Search size={16} />
+              <input
+                type="search"
+                className="sidebar-search-input"
+                placeholder="Search for people"
+              />
+            </div>
+
+            <MyCalendars
+              calendars={calendars}
+              hiddenCalendarIds={hiddenCalendarIds}
+              onToggleCalendar={onToggleCalendar}
+            />
+          </>
+        )}
+      </aside>
+    </>
   );
 }
 
