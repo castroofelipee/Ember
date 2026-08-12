@@ -373,11 +373,19 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 4rem 1rem;
+  padding: 1rem;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+}
+
+@media (min-width: 48rem) {
+  .event-dialog-backdrop {
+    padding: 4rem 1rem;
+  }
 }
 
 .event-dialog {
@@ -483,7 +491,15 @@
 
 .event-dialog-row {
   display: flex;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 30rem) {
+  .event-dialog-row {
+    flex-direction: row;
+    gap: 1rem;
+  }
 }
 
 .event-dialog-field {
