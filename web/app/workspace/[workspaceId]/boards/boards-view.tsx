@@ -348,6 +348,38 @@ function initialForName(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "?";
 }
 
+/** Cards store the people on them by display name, so a card drawn before the
+ * member list arrives — or one naming someone who has since left — still has a
+ * name to fall back on. Matched case-insensitively, as assignees are elsewhere. */
+function avatarForName(members: WorkspaceMember[], name: string): string | null {
+  const key = name.trim().toLowerCase();
+  return members.find((member) => member.display_name.toLowerCase() === key)?.avatar_url ?? null;
+}
+
+/** A member's photo where they have uploaded one in Settings, their initial
+ * where they have not. Always a single span, so each caller's own rule keeps
+ * sizing and stacking it. */
+function MemberAvatar({
+  name,
+  avatarUrl,
+  className,
+}: {
+  name: string;
+  avatarUrl: string | null;
+  className?: string;
+}) {
+  return (
+    <span className={className} title={name}>
+      {avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- Cloudinary serves these pre-cropped.
+        <img className="member-avatar-image" src={avatarUrl} alt="" />
+      ) : (
+        initialForName(name)
+      )}
+    </span>
+  );
+}
+
 function isFutureDate(value: string): boolean {
   if (!value) return false;
   const today = new Date();
@@ -1379,7 +1411,7 @@ function BoardPanel({
         <div className="knowledge-header-actions">
           <div className="knowledge-member-stack" aria-label={`${members.length} workspace members`}>
             {members.slice(0, 4).map((member) => (
-              <span key={member.id} title={member.display_name}>{initialForName(member.display_name)}</span>
+              <MemberAvatar key={member.id} name={member.display_name} avatarUrl={member.avatar_url} />
             ))}
           </div>
           <Button type="button" variant="outline" onClick={() => onOpenSettings("members")}>
@@ -1472,6 +1504,7 @@ function BoardPanel({
                       key={card.entity.id}
                       card={card}
                       board={activeBoard}
+                      members={members}
                       active={selectedEntity?.id === card.entity.id}
                       dropBefore={
                         cardDropHint?.columnId === column.id &&
@@ -1661,7 +1694,7 @@ function BoardSettingsDrawer({
           <p className="knowledge-muted">Responsibles come from real workspace members.</p>
           <div className="knowledge-member-picker">
             {members.map((member) => <div className="knowledge-member-choice" key={member.id}>
-              <span>{initialForName(member.display_name)}</span>
+              <MemberAvatar name={member.display_name} avatarUrl={member.avatar_url} />
               <span><strong>{member.display_name}</strong><small>{member.email} · {member.role}</small></span>
             </div>)}
           </div>
@@ -2202,6 +2235,7 @@ function DocumentEditor({
 function BoardCardView({
   card,
   board,
+  members,
   active,
   dropBefore,
   dragging,
@@ -2215,6 +2249,7 @@ function BoardCardView({
 }: {
   card: BoardCard;
   board: Board | null;
+  members: WorkspaceMember[];
   active: boolean;
   dropBefore: boolean;
   dragging: boolean;
@@ -2317,7 +2352,11 @@ function BoardCardView({
           <span className="knowledge-assignee-list">
             {assignees.map((assignee) => (
               <span className="knowledge-assignee" key={assignee} title={assignee}>
-                <span className="knowledge-assignee-avatar">{initialForName(assignee)}</span>
+                <MemberAvatar
+                  className="knowledge-assignee-avatar"
+                  name={assignee}
+                  avatarUrl={avatarForName(members, assignee)}
+                />
                 {assignee}
               </span>
             ))}
@@ -2453,7 +2492,7 @@ function MemberPicker({ members, selected, onChange }: {
     {members.map((member) => {
       const active = selected.includes(member.user_id);
       return <button type="button" key={member.id} aria-pressed={active} className={`knowledge-member-choice${active ? " knowledge-member-choice--active" : ""}`} onClick={() => onChange(active ? selected.filter((id) => id !== member.user_id) : [...selected, member.user_id])}>
-        <span>{initialForName(member.display_name)}</span>
+        <MemberAvatar name={member.display_name} avatarUrl={member.avatar_url} />
         <span><strong>{member.display_name}</strong><small>{member.email}</small></span>
       </button>;
     })}
