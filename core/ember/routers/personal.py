@@ -5,32 +5,17 @@ from fastapi.concurrency import run_in_threadpool
 import cloudinary
 import cloudinary.uploader
 from cloudinary.utils import cloudinary_url
-from urllib.parse import urlparse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ember.db import get_db
 from ember.dependencies import get_current_user
+from ember.images import MAX_IMAGE_BYTES, configure_cloudinary
 from ember.models import User
 from ember.models.personal import PersonalItem, PersonalItemKind
 from ember.schemas.personal import PersonalItemCreate, PersonalItemResponse, PersonalItemUpdate
 from ember.config import env
 
 router = APIRouter(prefix="/api/personal", tags=["Personal Space"])
-MAX_IMAGE_BYTES = 10 * 1024 * 1024
-
-
-def configure_cloudinary() -> None:
-    parsed = urlparse(env["CLOUDINARY_URL"])
-    if parsed.scheme != "cloudinary" or not all(
-        (parsed.hostname, parsed.username, parsed.password)
-    ):
-        raise HTTPException(status_code=503, detail="Image uploads are not configured.")
-    cloudinary.config(
-        cloud_name=parsed.hostname,
-        api_key=parsed.username,
-        api_secret=parsed.password,
-        secure=True,
-    )
 
 
 async def owned(db: AsyncSession, item_id: uuid.UUID, user_id: uuid.UUID) -> PersonalItem:
