@@ -3162,6 +3162,7 @@
 }
 
 .workspace-content {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -3174,9 +3175,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 4rem;
+  height: 3.5rem;
   flex-shrink: 0;
-  padding: 0 1rem 0 0.75rem;
+  padding-right: max(0.5rem, env(safe-area-inset-right));
+  padding-left: max(0.25rem, env(safe-area-inset-left));
   border-bottom: 1px solid #2a2a2a;
   background: #161616;
 }
@@ -3235,8 +3237,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -3254,20 +3256,52 @@
 .app-header-brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 0.45rem;
   padding: 0;
   border: none;
   background: transparent;
   color: #e8eaed;
-  font-size: 1.3rem;
+  font-size: 1.05rem;
   font-weight: 400;
   cursor: pointer;
 }
 
+.app-header-brand span {
+  display: none;
+}
+
 .app-header-logo {
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 1.9rem;
+  height: 1.9rem;
   object-fit: contain;
+}
+
+@media (min-width: 30rem) {
+  .app-header-brand span {
+    display: inline;
+  }
+}
+
+@media (min-width: 48rem) {
+  .app-header {
+    height: 4rem;
+    padding: 0 1rem 0 0.75rem;
+  }
+
+  .app-header-icon-button {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .app-header-brand {
+    gap: 0.65rem;
+    font-size: 1.3rem;
+  }
+
+  .app-header-logo {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
 }
 
 .app-launcher {
