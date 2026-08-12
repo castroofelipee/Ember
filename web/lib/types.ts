@@ -1,3 +1,11 @@
+/** The signed-in account. Mirrors ember.schemas.users.CurrentUserResponse. */
+export type CurrentUser = {
+  id: string;
+  email: string;
+  display_name: string;
+  avatar_url: string | null;
+};
+
 export type Workspace = {
   id: string;
   name: string;

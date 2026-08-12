@@ -1,6 +1,7 @@
 import { CalendarsSection } from "./calendars-section";
 import { GitHubSection } from "./github-section";
 import { InviteMembers } from "./invite-members";
+import { ProfileSection } from "./profile-section";
 import { SettingsForm } from "./settings-form";
 import { SettingsHeader } from "./settings-header";
 
@@ -14,6 +15,8 @@ export default function SettingsPage() {
           <p className="auth-subtitle">Preferences and working hours</p>
         </div>
         <div className="hub-content">
+          <ProfileSection />
+          <div className="settings-divider" />
           <SettingsForm />
           <div className="settings-divider" />
           <CalendarsSection />
