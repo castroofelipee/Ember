@@ -10,6 +10,7 @@ import {
   type RecurrenceRule,
   type TimeFormat,
 } from "@/lib/types";
+import { FINE_POINTER, useMediaQuery } from "@/lib/use-media-query";
 
 const HOUR_PX = 56;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -284,6 +285,7 @@ export function WeekView({
   }, []);
 
   const hasCalendars = calendars.length > 0;
+  const canDragEvents = useMediaQuery(FINE_POINTER);
   const nowOffset = (now.getHours() * 60 + now.getMinutes()) / 60 * HOUR_PX;
 
   const step = isDay ? DAY_MS : 7 * DAY_MS;
@@ -604,7 +606,7 @@ export function WeekView({
                       (displayEnd.getTime() - displayStart.getTime()) / 3_600_000 * HOUR_PX,
                       18,
                     );
-                    const draggable = !event.allDay && Boolean(onEventMove);
+                    const draggable = canDragEvents && !event.allDay && Boolean(onEventMove);
                     const active =
                       dragging?.eventKey === key || resizing?.eventKey === key;
                     return (
