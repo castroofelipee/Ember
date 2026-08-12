@@ -1,3 +1,4 @@
+import uuid
 from zoneinfo import available_timezones
 
 from pydantic import BaseModel, field_validator, model_validator
@@ -7,6 +8,15 @@ SUPPORTED_LOCALES = ("en-US", "pt-BR", "es-ES", "fr-FR", "de-DE")
 SUPPORTED_TIME_FORMATS = ("12h", "24h")
 
 _VALID_TIMEZONES = available_timezones()
+
+
+class CurrentUserResponse(BaseModel):
+    id: uuid.UUID
+    email: str
+    display_name: str
+    avatar_url: str | None
+
+    model_config = {"from_attributes": True}
 
 
 class PreferencesUpdateRequest(BaseModel):
