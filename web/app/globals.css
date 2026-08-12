@@ -799,17 +799,43 @@
   position: fixed;
   inset: 0;
   z-index: 60;
+  background: rgba(0, 0, 0, 0.45);
 }
 
+/* Bottom sheet on phones; the anchored popover takes over once there is room
+   beside the clicked event. */
 .event-detail {
   position: fixed;
-  visibility: hidden;
-  width: 22rem;
-  max-width: calc(100vw - 1rem);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 85dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom);
   background: #1c1c1c;
   border: 1px solid #313131;
-  border-radius: 0.85rem;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  border-radius: 1.1rem 1.1rem 0 0;
+  box-shadow: 0 -16px 48px rgba(0, 0, 0, 0.55);
+}
+
+@media (min-width: 48rem) {
+  .event-detail-backdrop {
+    background: transparent;
+  }
+
+  .event-detail {
+    visibility: hidden;
+    right: auto;
+    bottom: auto;
+    width: 22rem;
+    max-width: calc(100vw - 1rem);
+    max-height: none;
+    overflow: visible;
+    padding-bottom: 0;
+    border-radius: 0.85rem;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  }
 }
 
 .event-detail-actions {
