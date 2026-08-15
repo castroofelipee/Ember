@@ -340,6 +340,8 @@ async def delete_board(session: AsyncSession, board: Board) -> None:
 
 
 async def update_board(session: AsyncSession, board: Board, data: BoardUpdateRequest) -> Board:
+    if data.title is not None:
+        board.title = data.title
     if data.label_options is not None:
         board.label_options = data.label_options
     if data.assignee_options is not None:

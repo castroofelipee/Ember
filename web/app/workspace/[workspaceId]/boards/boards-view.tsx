@@ -491,7 +491,8 @@ export function BoardsView() {
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<Entity | null>(null);
   const [creatingCardColumn, setCreatingCardColumn] = useState<BoardColumn | null>(null);
-  const [boardTitle, setBoardTitle] = useState("Product Development");
+  const [boardTitle, setBoardTitle] = useState("");
+  const [creatingBoard, setCreatingBoard] = useState(false);
   const [columnTitle, setColumnTitle] = useState("");
   const [folderTitle, setFolderTitle] = useState("");
   const [documentTitle, setDocumentTitle] = useState("");
@@ -611,10 +612,29 @@ export function BoardsView() {
       const board = await createBoardWithTitle(boardTitle.trim());
       if (board) {
         setBoardTitle("");
+        setCreatingBoard(false);
         setError(null);
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not create board.");
+    }
+  }
+
+  async function renameBoard(board: Board, title: string) {
+    if (!title.trim() || title.trim() === board.title) return;
+    try {
+      const updated = await jsonRequest<Board>(
+        `/api/workspaces/${workspaceId}/boards/${board.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ title: title.trim() }),
+        },
+        "Could not rename board.",
+      );
+      setBoards((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setError(null);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not rename board.");
     }
   }
 
@@ -1275,19 +1295,6 @@ export function BoardsView() {
               </button>
             </div>
 
-            <div className="knowledge-create">
-              <input
-                className="event-dialog-input"
-                value={boardTitle}
-                onChange={(event) => setBoardTitle(event.target.value)}
-                placeholder="Board name"
-              />
-              <Button type="button" onClick={createBoard}>
-                <Plus />
-                Board
-              </Button>
-            </div>
-
             <div className="knowledge-board-list">
               {boards.map((board) => (
                 <button
@@ -1300,6 +1307,40 @@ export function BoardsView() {
                   <span>{board.title}</span>
                 </button>
               ))}
+              {creatingBoard ? (
+                <div className="knowledge-create knowledge-create--inline">
+                  <input
+                    className="event-dialog-input"
+                    value={boardTitle}
+                    autoFocus
+                    onChange={(event) => setBoardTitle(event.target.value)}
+                    placeholder="Board name"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") createBoard();
+                      if (event.key === "Escape") {
+                        setCreatingBoard(false);
+                        setBoardTitle("");
+                      }
+                    }}
+                    onBlur={() => {
+                      if (!boardTitle.trim()) setCreatingBoard(false);
+                    }}
+                  />
+                  <Button type="button" onClick={createBoard} disabled={!boardTitle.trim()}>
+                    <Plus />
+                    Board
+                  </Button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="knowledge-board-button knowledge-board-button--new"
+                  onClick={() => setCreatingBoard(true)}
+                >
+                  <Plus size={16} />
+                  <span>New board</span>
+                </button>
+              )}
             </div>
           </>
         )}
@@ -1355,6 +1396,7 @@ export function BoardsView() {
             onDeleteCard={deleteCard}
             members={members}
             onOpenSettings={(tab) => { setSettingsInitialTab(tab); setSettingsOpen(true); }}
+            onRenameBoard={renameBoard}
             quadrantFilter={quadrantFilter}
             onQuadrantFilterChange={setQuadrantFilter}
           />
@@ -1457,6 +1499,64 @@ export function BoardsView() {
   );
 }
 
+/** Click-to-edit board title, mirroring the column-header rename pattern:
+ * a plain heading until clicked, then an input committed on blur/Enter and
+ * discarded on Escape. */
+function BoardTitleEditor({
+  board,
+  onRename,
+}: {
+  board: Board;
+  onRename: (board: Board, title: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(board.title);
+
+  useEffect(() => {
+    setTitle(board.title);
+  }, [board.id, board.title]);
+
+  if (editing) {
+    return (
+      <input
+        className="event-dialog-input knowledge-board-title-input"
+        value={title}
+        autoFocus
+        onChange={(event) => setTitle(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            if (title.trim() && title.trim() !== board.title) onRename(board, title.trim());
+            else setTitle(board.title);
+            setEditing(false);
+          }
+          if (event.key === "Escape") {
+            setTitle(board.title);
+            setEditing(false);
+          }
+        }}
+        onBlur={() => {
+          if (title.trim() && title.trim() !== board.title) onRename(board, title.trim());
+          else setTitle(board.title);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="knowledge-board-title-button"
+      aria-label="Rename board"
+      title="Rename board"
+      onClick={() => setEditing(true)}
+    >
+      <h1>{board.title}</h1>
+      <Pencil size={14} />
+    </button>
+  );
+}
+
 function BoardPanel({
   activeBoard,
   columnTitle,
@@ -1483,6 +1583,7 @@ function BoardPanel({
   onDeleteCard,
   members,
   onOpenSettings,
+  onRenameBoard,
   quadrantFilter,
   onQuadrantFilterChange,
 }: {
@@ -1511,6 +1612,7 @@ function BoardPanel({
   onDeleteCard: (entity: Entity) => void;
   members: WorkspaceMember[];
   onOpenSettings: (tab: "workflow" | "members") => void;
+  onRenameBoard: (board: Board, title: string) => void;
   quadrantFilter: Quadrant | null;
   onQuadrantFilterChange: (quadrant: Quadrant | null) => void;
 }) {
@@ -1539,7 +1641,7 @@ function BoardPanel({
       <header className="knowledge-header">
         <div>
           <p className="mail-list-kicker">Workspace board</p>
-          <h1>{activeBoard.title}</h1>
+          <BoardTitleEditor board={activeBoard} onRename={onRenameBoard} />
         </div>
         <div className="knowledge-header-actions">
           <div className="knowledge-member-stack" aria-label={`${members.length} workspace members`}>

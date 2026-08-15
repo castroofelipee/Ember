@@ -173,9 +173,20 @@ def _expand_hex(color: str) -> str:
 
 
 class BoardUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
     label_options: list[str] | None = Field(default=None, max_length=50)
     assignee_options: list[str] | None = Field(default=None, max_length=50)
     label_colors: dict[str, str] | None = Field(default=None, max_length=50)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("title must not be blank")
+        return stripped
 
     @field_validator("label_options", "assignee_options")
     @classmethod
