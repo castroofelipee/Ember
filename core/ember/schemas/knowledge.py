@@ -54,61 +54,6 @@ class EntityResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class KnowledgeFolderCreateRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
-    parent_id: uuid.UUID | None = None
-
-    @field_validator("title")
-    @classmethod
-    def normalize_title(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("title must not be blank")
-        return stripped
-
-
-class KnowledgeFolderUpdateRequest(BaseModel):
-    title: str | None = Field(default=None, min_length=1, max_length=160)
-    parent_id: uuid.UUID | None = None
-    position: int | None = Field(default=None, ge=0)
-
-    @field_validator("title")
-    @classmethod
-    def normalize_title(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("title must not be blank")
-        return stripped
-
-
-class KnowledgeFolderResponse(BaseModel):
-    id: uuid.UUID
-    workspace_id: uuid.UUID
-    parent_id: uuid.UUID | None
-    title: str
-    position: int
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class DocumentCreateRequest(BaseModel):
-    title: str = Field(min_length=1, max_length=240)
-    content: str = Field(default="", max_length=100_000)
-    folder_id: uuid.UUID | None = None
-
-    @field_validator("title")
-    @classmethod
-    def normalize_title(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("title must not be blank")
-        return stripped
-
-
 class RelationCreateRequest(BaseModel):
     to_entity_id: uuid.UUID
     relation_type: str = Field(default="references", min_length=1, max_length=60)

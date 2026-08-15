@@ -9,7 +9,6 @@ from ember.models.knowledge import (
     BoardColumn,
     Entity,
     EntityType,
-    KnowledgeFolder,
     Relation,
     RelationSource,
 )
@@ -36,7 +35,6 @@ __all__ = [
     "BoardColumn",
     "Entity",
     "EntityType",
-    "KnowledgeFolder",
     "MailAccount",
     "MailAccountStatus",
     "MailDomain",

@@ -9,7 +9,6 @@ from ember.models.knowledge import (
     BoardCard,
     BoardColumn,
     Entity,
-    KnowledgeFolder,
     Relation,
     RelationSource,
 )
@@ -20,8 +19,6 @@ from ember.schemas.knowledge import (
     BoardUpdateRequest,
     EntityCreateRequest,
     EntityUpdateRequest,
-    KnowledgeFolderCreateRequest,
-    KnowledgeFolderUpdateRequest,
     RelationCreateRequest,
 )
 
@@ -150,109 +147,6 @@ async def update_entity(
 async def delete_entity(session: AsyncSession, entity: Entity) -> None:
     await session.delete(entity)
     await session.flush()
-
-
-async def create_folder(
-    session: AsyncSession,
-    workspace_id: uuid.UUID,
-    data: KnowledgeFolderCreateRequest,
-) -> KnowledgeFolder:
-    max_position = (
-        await session.execute(
-            select(func.max(KnowledgeFolder.position)).where(
-                KnowledgeFolder.workspace_id == workspace_id,
-                KnowledgeFolder.parent_id == data.parent_id,
-            )
-        )
-    ).scalar_one()
-    folder = KnowledgeFolder(
-        workspace_id=workspace_id,
-        parent_id=data.parent_id,
-        title=data.title,
-        position=0 if max_position is None else max_position + 1,
-    )
-    session.add(folder)
-    await session.flush()
-    return folder
-
-
-async def get_folder(
-    session: AsyncSession,
-    workspace_id: uuid.UUID,
-    folder_id: uuid.UUID,
-) -> KnowledgeFolder | None:
-    return (
-        await session.execute(
-            select(KnowledgeFolder).where(
-                KnowledgeFolder.workspace_id == workspace_id,
-                KnowledgeFolder.id == folder_id,
-            )
-        )
-    ).scalar_one_or_none()
-
-
-async def list_folders(
-    session: AsyncSession,
-    workspace_id: uuid.UUID,
-) -> list[KnowledgeFolder]:
-    return (
-        await session.execute(
-            select(KnowledgeFolder)
-            .where(KnowledgeFolder.workspace_id == workspace_id)
-            .order_by(KnowledgeFolder.parent_id, KnowledgeFolder.position, KnowledgeFolder.title)
-        )
-    ).scalars().all()
-
-
-async def update_folder(
-    session: AsyncSession,
-    folder: KnowledgeFolder,
-    data: KnowledgeFolderUpdateRequest,
-) -> KnowledgeFolder:
-    changes = data.model_dump(exclude_unset=True)
-
-    if "title" in changes and data.title is not None:
-        folder.title = data.title
-
-    if "parent_id" in changes or data.position is not None:
-        new_parent_id = changes.get("parent_id", folder.parent_id)
-        siblings = (
-            await session.execute(
-                select(KnowledgeFolder)
-                .where(
-                    KnowledgeFolder.workspace_id == folder.workspace_id,
-                    KnowledgeFolder.parent_id == new_parent_id,
-                    KnowledgeFolder.id != folder.id,
-                )
-                .order_by(KnowledgeFolder.position, KnowledgeFolder.title)
-            )
-        ).scalars().all()
-        insert_at = min(data.position if data.position is not None else len(siblings), len(siblings))
-        ordered = [*siblings]
-        ordered.insert(insert_at, folder)
-
-        source_siblings = (
-            await session.execute(
-                select(KnowledgeFolder)
-                .where(
-                    KnowledgeFolder.workspace_id == folder.workspace_id,
-                    KnowledgeFolder.parent_id == folder.parent_id,
-                )
-                .order_by(KnowledgeFolder.position, KnowledgeFolder.title)
-            )
-        ).scalars().all()
-        offset = len(source_siblings) + len(ordered)
-        for index, item in enumerate(source_siblings):
-            item.position = offset + index
-        await session.flush()
-
-        folder.parent_id = new_parent_id
-        for index, item in enumerate(ordered):
-            item.position = index
-
-    await session.flush()
-    await session.refresh(folder)
-    return folder
 
 
 async def create_relation(

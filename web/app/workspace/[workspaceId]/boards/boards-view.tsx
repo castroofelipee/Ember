@@ -8,23 +8,18 @@ import {
   useSyncExternalStore,
   type DragEvent,
 } from "react";
-import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   CalendarDays,
   ChevronLeft,
-  ChevronDown,
   ChevronRight,
   CheckCircle2,
   CheckSquare,
   Clock,
   Columns3,
-  FilePlus,
   FileText,
   Flag,
-  Folder,
-  FolderPlus,
   GripVertical,
   Link2,
   Mail,
@@ -53,14 +48,11 @@ import type {
   ChecklistItem,
   Entity,
   EntityType,
-  KnowledgeFolder,
   RelatedEntity,
   Calendar,
   EventItem,
   WorkspaceMember,
 } from "@/lib/types";
-
-const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
 
 const ENTITY_TYPES: { value: EntityType; label: string }[] = [
   { value: "task", label: "Task" },
@@ -75,19 +67,17 @@ const ENTITY_TYPES: { value: EntityType; label: string }[] = [
   { value: "pr", label: "PR" },
   { value: "incident", label: "Incident" },
   { value: "note", label: "Note" },
-  { value: "document", label: "Document" },
 ];
 
-const CARD_TYPES = ENTITY_TYPES.filter((item) => item.value !== "document");
+const CARD_TYPES = ENTITY_TYPES;
 const RELATED_TYPES: { value: EntityType; label: string }[] = [
   { value: "decision", label: "Decision" },
   { value: "event", label: "Event" },
   { value: "email", label: "Email" },
-  { value: "document", label: "Document" },
   { value: "task", label: "Task" },
 ];
 
-type ViewMode = "board" | "docs" | "today";
+type ViewMode = "board" | "today";
 type CardRecurrence = "none" | "daily";
 
 /** A destructive action (complete/delete) that's been applied optimistically
@@ -122,7 +112,6 @@ type ColumnDropHint = { columnId: string; edge: "before" | "after" } | null;
  * the end of the column when it is null. Anchoring to a neighbour rather than
  * an index keeps the hint correct while the board re-renders mid-drag. */
 type CardDropHint = { columnId: string; beforeEntityId: string | null } | null;
-type FolderDropTarget = string | "workspace" | null;
 
 function typeLabel(type: EntityType): string {
   return ENTITY_TYPES.find((item) => item.value === type)?.label ?? type;
@@ -483,19 +472,13 @@ export function BoardsView() {
   const [mode, setMode] = useState<ViewMode>("board");
   const [boards, setBoards] = useState<Board[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
-  const [folders, setFolders] = useState<KnowledgeFolder[]>([]);
-  const [documents, setDocuments] = useState<Entity[]>([]);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
-  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<Entity | null>(null);
-  const [selectedDocument, setSelectedDocument] = useState<Entity | null>(null);
   const [creatingCardColumn, setCreatingCardColumn] = useState<BoardColumn | null>(null);
   const [boardTitle, setBoardTitle] = useState("");
   const [creatingBoard, setCreatingBoard] = useState(false);
   const [columnTitle, setColumnTitle] = useState("");
-  const [folderTitle, setFolderTitle] = useState("");
-  const [documentTitle, setDocumentTitle] = useState("");
   const [draggingEntityId, setDraggingEntityId] = useState<string | null>(null);
   const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
   const [columnDropHint, setColumnDropHint] = useState<ColumnDropHint>(null);
@@ -520,26 +503,20 @@ export function BoardsView() {
     setLoading(true);
     setError(null);
     try {
-      const [boardsResponse, calendarsResponse, foldersResponse, documentsResponse, membersResponse] = await Promise.all([
+      const [boardsResponse, calendarsResponse, membersResponse] = await Promise.all([
         apiFetch(`/api/workspaces/${workspaceId}/boards`),
         apiFetch(`/api/workspaces/${workspaceId}/calendars`),
-        apiFetch(`/api/workspaces/${workspaceId}/folders`),
-        apiFetch(`/api/workspaces/${workspaceId}/entities?type=document`),
         apiFetch(`/api/workspaces/${workspaceId}/members`),
       ]);
-      if (!boardsResponse.ok || !calendarsResponse.ok || !foldersResponse.ok || !documentsResponse.ok || !membersResponse.ok) {
+      if (!boardsResponse.ok || !calendarsResponse.ok || !membersResponse.ok) {
         setError("Could not load workspace knowledge.");
         return;
       }
       const boardItems = ((await boardsResponse.json()) as Board[]).map(normalizeBoard);
       const calendarItems: Calendar[] = await calendarsResponse.json();
-      const folderItems: KnowledgeFolder[] = await foldersResponse.json();
-      const documentItems: Entity[] = await documentsResponse.json();
       const memberItems: WorkspaceMember[] = await membersResponse.json();
       setBoards(boardItems);
       setCalendars(calendarItems);
-      setFolders(folderItems);
-      setDocuments(documentItems);
       setMembers(memberItems);
       setActiveBoardId((current) => current ?? boardItems[0]?.id ?? null);
     } finally {
@@ -1058,71 +1035,8 @@ export function BoardsView() {
     await moveColumn(dragged, position);
   }
 
-  async function createFolder() {
-    if (!folderTitle.trim()) return;
-    try {
-      const folder = await jsonRequest<KnowledgeFolder>(
-        `/api/workspaces/${workspaceId}/folders`,
-        {
-          method: "POST",
-          body: JSON.stringify({ title: folderTitle.trim(), parent_id: activeFolderId }),
-        },
-        "Could not create folder.",
-      );
-      setFolders((prev) => [...prev, folder]);
-      setActiveFolderId(folder.id);
-      setFolderTitle("");
-      setError(null);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not create folder.");
-    }
-  }
-
-  async function moveFolder(folderId: string, parentId: string | null) {
-    try {
-      const folder = await jsonRequest<KnowledgeFolder>(
-        `/api/workspaces/${workspaceId}/folders/${folderId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ parent_id: parentId }),
-        },
-        "Could not move folder.",
-      );
-      setFolders((prev) => prev.map((item) => (item.id === folder.id ? folder : item)));
-      setError(null);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not move folder.");
-    }
-  }
-
-  async function createDocument() {
-    if (!documentTitle.trim()) return;
-    try {
-      const document = await jsonRequest<Entity>(
-        `/api/workspaces/${workspaceId}/documents`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            title: documentTitle.trim(),
-            content: `# ${documentTitle.trim()}\n`,
-            folder_id: activeFolderId,
-          }),
-        },
-        "Could not create document.",
-      );
-      setDocuments((prev) => [...prev, document]);
-      setSelectedDocument(document);
-      setSelectedEntity(null);
-      setDocumentTitle("");
-      setError(null);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not create document.");
-    }
-  }
-
   function updateEntityInState(entity: Entity) {
     setSelectedEntity((current) => (current?.id === entity.id ? entity : current));
-    setSelectedDocument((current) => (current?.id === entity.id ? entity : current));
     setBoards((prev) =>
       prev.map((board) => ({
         ...board,
@@ -1131,7 +1045,6 @@ export function BoardsView() {
         ),
       })),
     );
-    setDocuments((prev) => prev.map((document) => (document.id === entity.id ? entity : document)));
   }
 
   async function closeCard(entity: Entity) {
@@ -1207,36 +1120,6 @@ export function BoardsView() {
     );
   }
 
-  if (mode === "docs") {
-    return (
-      <div className="knowledge-page knowledge-page--docs-only">
-        {error && <p className="form-error">{error}</p>}
-        <UndoToastStack pendingActions={pendingActions} onUndo={undoPendingAction} />
-        <DocsPanel
-          folders={folders}
-          documents={documents}
-          selectedDocument={selectedDocument}
-          documentTitle={documentTitle}
-          folderTitle={folderTitle}
-          activeFolderId={activeFolderId}
-          onBack={() => router.push(`/workspace/${workspaceId}`)}
-          onDocumentTitleChange={setDocumentTitle}
-          onFolderTitleChange={setFolderTitle}
-          onCreateDocument={createDocument}
-          onCreateFolder={createFolder}
-          onMoveFolder={moveFolder}
-          onSelectFolder={setActiveFolderId}
-          onSelectDocument={(document) => {
-            setSelectedDocument(document);
-            setSelectedEntity(null);
-          }}
-          onUpdated={updateEntityInState}
-          workspaceId={workspaceId}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className={`knowledge-page${navOpen ? "" : " knowledge-page--nav-collapsed"}`}>
       <aside className={`knowledge-nav${navOpen ? "" : " knowledge-nav--collapsed"}`}>
@@ -1278,10 +1161,6 @@ export function BoardsView() {
               >
                 <Columns3 size={15} />
                 Boards
-              </button>
-              <button type="button" className="knowledge-tab" onClick={() => setMode("docs")}>
-                <FileText size={15} />
-                Docs
               </button>
               <button
                 type="button"
@@ -1403,7 +1282,7 @@ export function BoardsView() {
         )}
       </main>
 
-      {selectedEntity && selectedEntity.type !== "document" && (
+      {selectedEntity && (
         <EntityDrawer
           workspaceId={workspaceId}
           entity={selectedEntity}
@@ -2188,419 +2067,6 @@ function ColumnHeader({
         </button>
       </div>}
     </div>
-  );
-}
-
-function DocsPanel({
-  folders,
-  documents,
-  selectedDocument,
-  documentTitle,
-  folderTitle,
-  activeFolderId,
-  workspaceId,
-  onBack,
-  onDocumentTitleChange,
-  onFolderTitleChange,
-  onCreateDocument,
-  onCreateFolder,
-  onMoveFolder,
-  onSelectFolder,
-  onSelectDocument,
-  onUpdated,
-}: {
-  folders: KnowledgeFolder[];
-  documents: Entity[];
-  selectedDocument: Entity | null;
-  documentTitle: string;
-  folderTitle: string;
-  activeFolderId: string | null;
-  workspaceId: string;
-  onBack: () => void;
-  onDocumentTitleChange: (value: string) => void;
-  onFolderTitleChange: (value: string) => void;
-  onCreateDocument: () => void;
-  onCreateFolder: () => void;
-  onMoveFolder: (folderId: string, parentId: string | null) => void;
-  onSelectFolder: (folderId: string | null) => void;
-  onSelectDocument: (entity: Entity) => void;
-  onUpdated: (entity: Entity) => void;
-}) {
-  const [openFolderIds, setOpenFolderIds] = useState<Set<string>>(() => new Set());
-  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
-  const [folderDropTarget, setFolderDropTarget] = useState<FolderDropTarget>(null);
-  const rootDocuments = documents.filter((document) => !stringProp(document, "folder_id"));
-  const folderIds = useMemo(() => new Set(folders.map((folder) => folder.id)), [folders]);
-  const rootFolders = useMemo(
-    () => folders.filter((folder) => !folder.parent_id || !folderIds.has(folder.parent_id)),
-    [folderIds, folders],
-  );
-  const childFolderMap = useMemo(() => {
-    const map = new Map<string, KnowledgeFolder[]>();
-    folders.forEach((folder) => {
-      if (!folder.parent_id) return;
-      map.set(folder.parent_id, [...(map.get(folder.parent_id) ?? []), folder]);
-    });
-    return map;
-  }, [folders]);
-  const folderDocumentMap = useMemo(() => {
-    const map = new Map<string, Entity[]>();
-    folders.forEach((folder) => map.set(folder.id, []));
-    documents.forEach((document) => {
-      const folderId = stringProp(document, "folder_id");
-      if (!folderId) return;
-      map.set(folderId, [...(map.get(folderId) ?? []), document]);
-    });
-    return map;
-  }, [documents, folders]);
-  const activeFolder = folders.find((folder) => folder.id === activeFolderId) ?? null;
-  const createTarget = activeFolder?.title ?? "Workspace";
-
-  function toggleFolder(folderId: string) {
-    setOpenFolderIds((current) => {
-      const next = new Set(current);
-      if (next.has(folderId)) next.delete(folderId);
-      else next.add(folderId);
-      return next;
-    });
-  }
-
-  function canMoveFolder(folderId: string, targetParentId: string | null) {
-    if (folderId === targetParentId) return false;
-    const parentById = new Map(folders.map((folder) => [folder.id, folder.parent_id]));
-    let cursor = targetParentId;
-    while (cursor) {
-      if (cursor === folderId) return false;
-      cursor = parentById.get(cursor) ?? null;
-    }
-    return true;
-  }
-
-  function handleFolderDrop(targetParentId: string | null) {
-    if (!draggingFolderId || !canMoveFolder(draggingFolderId, targetParentId)) {
-      setDraggingFolderId(null);
-      setFolderDropTarget(null);
-      return;
-    }
-    onMoveFolder(draggingFolderId, targetParentId);
-    if (targetParentId) {
-      setOpenFolderIds((current) => new Set(current).add(targetParentId));
-    }
-    setDraggingFolderId(null);
-    setFolderDropTarget(null);
-  }
-
-  return (
-    <div className="knowledge-doc-layout">
-      <aside className="knowledge-doc-explorer">
-        <div className="knowledge-doc-explorer-head">
-          <button
-            type="button"
-            className="mail-icon-button"
-            aria-label="Back to calendar"
-            onClick={onBack}
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <span>Files</span>
-          <FileText size={15} />
-        </div>
-
-        <div className="knowledge-doc-create-row">
-          <input
-            className="event-dialog-input"
-            value={documentTitle}
-            onChange={(event) => onDocumentTitleChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") onCreateDocument();
-            }}
-            placeholder={`Document in ${createTarget}`}
-          />
-          <button type="button" aria-label="Create document" onClick={onCreateDocument}>
-            <FilePlus size={15} />
-          </button>
-        </div>
-        <div className="knowledge-doc-create-row">
-          <input
-            className="event-dialog-input"
-            value={folderTitle}
-            onChange={(event) => onFolderTitleChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") onCreateFolder();
-            }}
-            placeholder={`Folder in ${createTarget}`}
-          />
-          <button type="button" aria-label="Create folder" onClick={onCreateFolder}>
-            <FolderPlus size={15} />
-          </button>
-        </div>
-
-        <nav className="knowledge-doc-tree" aria-label="Documents">
-          <button
-            type="button"
-            className={`knowledge-doc-workspace${activeFolderId === null ? " knowledge-doc-workspace--active" : ""}${
-              folderDropTarget === "workspace" ? " knowledge-doc-workspace--drop" : ""
-            }`}
-            onClick={() => onSelectFolder(null)}
-            onDragOver={(event) => {
-              if (!draggingFolderId) return;
-              event.preventDefault();
-              setFolderDropTarget("workspace");
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              handleFolderDrop(null);
-            }}
-          >
-            <Folder size={15} />
-            <span>Workspace</span>
-          </button>
-          {rootFolders.map((folder) => (
-            <FolderTreeItem
-              key={folder.id}
-              folder={folder}
-              activeFolderId={activeFolderId}
-              selectedDocument={selectedDocument}
-              openFolderIds={openFolderIds}
-              draggingFolderId={draggingFolderId}
-              folderDropTarget={folderDropTarget}
-              childFolderMap={childFolderMap}
-              folderDocumentMap={folderDocumentMap}
-              onSelectFolder={onSelectFolder}
-              onSelectDocument={onSelectDocument}
-              onToggleFolder={toggleFolder}
-              onDragStart={setDraggingFolderId}
-              onDragEnd={() => {
-                setDraggingFolderId(null);
-                setFolderDropTarget(null);
-              }}
-              onDragOverFolder={setFolderDropTarget}
-              onDropFolder={handleFolderDrop}
-            />
-          ))}
-          {rootDocuments.map((document) => (
-            <DocTreeItem
-              key={document.id}
-              document={document}
-              active={selectedDocument?.id === document.id}
-              onSelect={() => onSelectDocument(document)}
-            />
-          ))}
-        </nav>
-      </aside>
-
-      {selectedDocument ? (
-        <DocumentEditor
-          workspaceId={workspaceId}
-          document={selectedDocument}
-          onUpdated={onUpdated}
-        />
-      ) : (
-        <section className="knowledge-doc-editor knowledge-doc-editor--empty">
-          <FileText size={24} />
-          <h2>No file is open</h2>
-        </section>
-      )}
-    </div>
-  );
-}
-
-function FolderTreeItem({
-  folder,
-  activeFolderId,
-  selectedDocument,
-  openFolderIds,
-  draggingFolderId,
-  folderDropTarget,
-  childFolderMap,
-  folderDocumentMap,
-  onSelectFolder,
-  onSelectDocument,
-  onToggleFolder,
-  onDragStart,
-  onDragEnd,
-  onDragOverFolder,
-  onDropFolder,
-}: {
-  folder: KnowledgeFolder;
-  activeFolderId: string | null;
-  selectedDocument: Entity | null;
-  openFolderIds: Set<string>;
-  draggingFolderId: string | null;
-  folderDropTarget: FolderDropTarget;
-  childFolderMap: Map<string, KnowledgeFolder[]>;
-  folderDocumentMap: Map<string, Entity[]>;
-  onSelectFolder: (folderId: string) => void;
-  onSelectDocument: (entity: Entity) => void;
-  onToggleFolder: (folderId: string) => void;
-  onDragStart: (folderId: string) => void;
-  onDragEnd: () => void;
-  onDragOverFolder: (folderId: string) => void;
-  onDropFolder: (folderId: string) => void;
-}) {
-  const childFolders = childFolderMap.get(folder.id) ?? [];
-  const folderDocuments = folderDocumentMap.get(folder.id) ?? [];
-  const hasChildren = childFolders.length > 0 || folderDocuments.length > 0;
-  const isOpen = openFolderIds.has(folder.id);
-
-  return (
-    <div className="knowledge-doc-tree-section">
-      <button
-        type="button"
-        className={`knowledge-doc-folder${activeFolderId === folder.id ? " knowledge-doc-folder--active" : ""}${
-          draggingFolderId === folder.id ? " knowledge-doc-folder--dragging" : ""
-        }${folderDropTarget === folder.id ? " knowledge-doc-folder--drop" : ""}`}
-        draggable
-        onDragStart={(event) => {
-          event.stopPropagation();
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("application/x-ember-folder", folder.id);
-          onDragStart(folder.id);
-        }}
-        onDragEnd={onDragEnd}
-        onDragOver={(event) => {
-          if (!draggingFolderId || draggingFolderId === folder.id) return;
-          event.preventDefault();
-          onDragOverFolder(folder.id);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onDropFolder(folder.id);
-        }}
-        onClick={() => onSelectFolder(folder.id)}
-      >
-        <span
-          className="knowledge-doc-folder-toggle"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (hasChildren) onToggleFolder(folder.id);
-          }}
-        >
-          {hasChildren && (isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />)}
-        </span>
-        <Folder size={15} />
-        <span>{folder.title}</span>
-      </button>
-      {isOpen && hasChildren && (
-        <div className="knowledge-doc-tree-children">
-          {childFolders.map((child) => (
-            <FolderTreeItem
-              key={child.id}
-              folder={child}
-              activeFolderId={activeFolderId}
-              selectedDocument={selectedDocument}
-              openFolderIds={openFolderIds}
-              draggingFolderId={draggingFolderId}
-              folderDropTarget={folderDropTarget}
-              childFolderMap={childFolderMap}
-              folderDocumentMap={folderDocumentMap}
-              onSelectFolder={onSelectFolder}
-              onSelectDocument={onSelectDocument}
-              onToggleFolder={onToggleFolder}
-              onDragStart={onDragStart}
-              onDragEnd={onDragEnd}
-              onDragOverFolder={onDragOverFolder}
-              onDropFolder={onDropFolder}
-            />
-          ))}
-          {folderDocuments.map((document) => (
-            <DocTreeItem
-              key={document.id}
-              document={document}
-              active={selectedDocument?.id === document.id}
-              onSelect={() => onSelectDocument(document)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DocTreeItem({
-  document,
-  active,
-  onSelect,
-}: {
-  document: Entity;
-  active: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`knowledge-doc-file${active ? " knowledge-doc-file--active" : ""}`}
-      onClick={onSelect}
-    >
-      <FileText size={14} />
-      <span>{document.title}</span>
-    </button>
-  );
-}
-
-function DocumentEditor({
-  workspaceId,
-  document,
-  onUpdated,
-}: {
-  workspaceId: string;
-  document: Entity;
-  onUpdated: (entity: Entity) => void;
-}) {
-  const [title, setTitle] = useState(document.title);
-  const [content, setContent] = useState(document.content);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setTitle(document.title);
-    setContent(document.content);
-    setError(null);
-  }, [document]);
-
-  async function saveDocument() {
-    const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${document.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        title,
-        content,
-        properties: document.properties,
-      }),
-    });
-    if (!response.ok) {
-      setError(await responseError(response, "Could not save document."));
-      return;
-    }
-    const updated: Entity = await response.json();
-    onUpdated(updated);
-    setError(null);
-  }
-
-  return (
-    <section className="knowledge-doc-editor">
-      <div className="knowledge-doc-editor-top">
-        <input
-          className="knowledge-doc-title-input"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-        <Button type="button" onClick={saveDocument}>
-          <Save />
-          Save
-        </Button>
-      </div>
-      {error && <p className="form-error">{error}</p>}
-      <div className="knowledge-doc-md-editor" data-color-mode="dark">
-        <MDEditor
-          value={content}
-          onChange={(value) => setContent(value ?? "")}
-          preview="edit"
-          visibleDragbar={false}
-          textareaProps={{ spellCheck: false }}
-          height="100%"
-        />
-      </div>
-    </section>
   );
 }
 

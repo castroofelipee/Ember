@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ember.db import get_db
 from ember.dependencies import get_current_user
-from ember.models import Board, Entity, EntityType, User
+from ember.models import Board, Entity, User
 from ember.schemas.knowledge import (
     BoardCardCreateRequest,
     BoardCardCreateWithEntityRequest,
@@ -18,13 +18,9 @@ from ember.schemas.knowledge import (
     BoardCreateRequest,
     BoardResponse,
     BoardUpdateRequest,
-    DocumentCreateRequest,
     EntityCreateRequest,
     EntityResponse,
     EntityUpdateRequest,
-    KnowledgeFolderCreateRequest,
-    KnowledgeFolderResponse,
-    KnowledgeFolderUpdateRequest,
     RelatedEntityResponse,
     RelationCreateRequest,
     RelationResponse,
@@ -34,7 +30,6 @@ from ember.services.knowledge import (
     create_board,
     create_board_column,
     create_entity,
-    create_folder,
     create_relation,
     delete_board,
     delete_board_column,
@@ -43,15 +38,12 @@ from ember.services.knowledge import (
     get_board_card,
     get_board_column,
     get_entity,
-    get_folder,
     list_board_cards,
     list_board_columns,
     list_boards,
-    list_folders,
     list_entities,
     list_related,
     move_board_card,
-    update_folder,
     update_board,
     update_board_column,
     update_entity,
@@ -228,94 +220,6 @@ async def delete_entity_route(
     await _require_membership(db, workspace_id, current_user.id)
     entity = await _get_entity_or_404(db, workspace_id, entity_id)
     await delete_entity(db, entity)
-
-
-@router.post("/{workspace_id}/folders", status_code=status.HTTP_201_CREATED)
-async def create_folder_route(
-    workspace_id: uuid.UUID,
-    data: KnowledgeFolderCreateRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> KnowledgeFolderResponse:
-    await _require_membership(db, workspace_id, current_user.id)
-    if data.parent_id is not None and await get_folder(db, workspace_id, data.parent_id) is None:
-        raise _NOT_FOUND
-    folder = await create_folder(db, workspace_id, data)
-    return KnowledgeFolderResponse.model_validate(folder)
-
-
-@router.get("/{workspace_id}/folders")
-async def list_folders_route(
-    workspace_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> list[KnowledgeFolderResponse]:
-    await _require_membership(db, workspace_id, current_user.id)
-    folders = await list_folders(db, workspace_id)
-    return [KnowledgeFolderResponse.model_validate(folder) for folder in folders]
-
-
-@router.patch("/{workspace_id}/folders/{folder_id}")
-async def update_folder_route(
-    workspace_id: uuid.UUID,
-    folder_id: uuid.UUID,
-    data: KnowledgeFolderUpdateRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> KnowledgeFolderResponse:
-    await _require_membership(db, workspace_id, current_user.id)
-    folder = await get_folder(db, workspace_id, folder_id)
-    if folder is None:
-        raise _NOT_FOUND
-
-    fields = data.model_fields_set
-    if "parent_id" in fields and data.parent_id is not None:
-        if data.parent_id == folder.id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="A folder cannot be moved inside itself.",
-            )
-        parent = await get_folder(db, workspace_id, data.parent_id)
-        if parent is None:
-            raise _NOT_FOUND
-
-        folders = await list_folders(db, workspace_id)
-        parent_by_id = {item.id: item.parent_id for item in folders}
-        cursor = data.parent_id
-        while cursor is not None:
-            if cursor == folder.id:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="A folder cannot be moved inside one of its descendants.",
-                )
-            cursor = parent_by_id.get(cursor)
-
-    updated = await update_folder(db, folder, data)
-    return KnowledgeFolderResponse.model_validate(updated)
-
-
-@router.post("/{workspace_id}/documents", status_code=status.HTTP_201_CREATED)
-async def create_document_route(
-    workspace_id: uuid.UUID,
-    data: DocumentCreateRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> EntityResponse:
-    await _require_membership(db, workspace_id, current_user.id)
-    if data.folder_id is not None and await get_folder(db, workspace_id, data.folder_id) is None:
-        raise _NOT_FOUND
-    entity = await create_entity(
-        db,
-        workspace_id,
-        current_user.id,
-        EntityCreateRequest(
-            type=EntityType.DOCUMENT,
-            title=data.title,
-            content=data.content,
-            properties={"folder_id": str(data.folder_id) if data.folder_id else ""},
-        ),
-    )
-    return EntityResponse.model_validate(entity)
 
 
 @router.post("/{workspace_id}/entities/{entity_id}/relations", status_code=status.HTTP_201_CREATED)

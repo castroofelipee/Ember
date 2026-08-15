@@ -1,8 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@uiw/react-md-editor/markdown-editor.css";
-@import "@uiw/react-markdown-preview/markdown.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -1754,12 +1752,6 @@
   justify-content: center;
 }
 
-.knowledge-page--docs-only {
-  display: block;
-  padding: 0;
-  overflow: hidden;
-}
-
 .knowledge-nav {
   min-height: 0;
   overflow-y: auto;
@@ -2925,247 +2917,6 @@
   gap: 0.5rem;
 }
 
-.knowledge-doc-layout {
-  display: grid;
-  grid-template-columns: 17rem minmax(0, 1fr);
-  height: 100dvh;
-  min-height: 0;
-  overflow: hidden;
-  background: #111111;
-}
-
-.knowledge-doc-explorer {
-  min-width: 0;
-  overflow-y: auto;
-  border-right: 1px solid #262626;
-  background: #181818;
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.knowledge-doc-explorer-head {
-  display: grid;
-  grid-template-columns: 2.35rem minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.45rem;
-  min-height: 2rem;
-  color: #d6d6d6;
-  font-size: 0.78rem;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.knowledge-doc-create-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 2.25rem;
-  gap: 0.45rem;
-}
-
-.knowledge-doc-create-row button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #333333;
-  border-radius: 0.45rem;
-  background: #232323;
-  color: #d6d6d6;
-  cursor: pointer;
-}
-
-.knowledge-doc-create-row button:hover {
-  background: #2c2c2c;
-  color: #ffffff;
-}
-
-.knowledge-doc-tree,
-.knowledge-doc-tree-section,
-.knowledge-doc-tree-children {
-  display: flex;
-  flex-direction: column;
-}
-
-.knowledge-doc-tree {
-  gap: 0.2rem;
-}
-
-.knowledge-doc-tree-section {
-  gap: 0.12rem;
-}
-
-.knowledge-doc-tree-children {
-  gap: 0.04rem;
-  margin-left: 0.75rem;
-  padding-left: 0.45rem;
-  border-left: 1px solid #2b2b2b;
-}
-
-.knowledge-doc-workspace,
-.knowledge-doc-folder,
-.knowledge-doc-file {
-  width: 100%;
-  min-width: 0;
-  min-height: 1.85rem;
-  border: none;
-  border-radius: 0.35rem;
-  background: transparent;
-  color: #cfcfcf;
-  display: grid;
-  align-items: center;
-  gap: 0.45rem;
-  padding: 0 0.45rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.knowledge-doc-workspace {
-  grid-template-columns: auto minmax(0, 1fr);
-  min-height: 2rem;
-  color: #e0e0e0;
-  font-size: 0.78rem;
-  font-weight: 750;
-  text-transform: uppercase;
-}
-
-.knowledge-doc-folder {
-  grid-template-columns: 1rem auto minmax(0, 1fr);
-  font-size: 0.85rem;
-  font-weight: 650;
-}
-
-.knowledge-doc-folder-toggle {
-  width: 1rem;
-  min-width: 1rem;
-  color: #8f8f8f;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.knowledge-doc-file {
-  grid-template-columns: auto minmax(0, 1fr);
-  color: #ababab;
-  font-size: 0.84rem;
-}
-
-.knowledge-doc-workspace span,
-.knowledge-doc-folder span,
-.knowledge-doc-file span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.knowledge-doc-workspace:hover,
-.knowledge-doc-folder:hover,
-.knowledge-doc-file:hover,
-.knowledge-doc-workspace--active,
-.knowledge-doc-folder--active,
-.knowledge-doc-file--active {
-  background: #2a2a2a;
-  color: #ffffff;
-}
-
-.knowledge-doc-workspace--drop,
-.knowledge-doc-folder--drop {
-  background: #263426;
-  color: #ffffff;
-  box-shadow: inset 0 0 0 1px #4d7c4d;
-}
-
-.knowledge-doc-folder--dragging {
-  opacity: 0.52;
-}
-
-.knowledge-doc-file--active {
-  background: #21103b;
-}
-
-.knowledge-doc-editor {
-  min-width: 0;
-  min-height: 0;
-  background: #151515;
-  padding: 1rem 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.knowledge-doc-editor--empty {
-  align-items: center;
-  justify-content: center;
-  color: #a8a8a8;
-}
-
-.knowledge-doc-editor-top {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: center;
-  border-bottom: 1px solid #252525;
-  padding-bottom: 0.75rem;
-}
-
-.knowledge-doc-title-input {
-  min-width: 0;
-  border: none;
-  border-bottom: 1px solid #333333;
-  background: transparent;
-  color: #ffffff;
-  padding: 0.45rem 0;
-  font-size: 1.45rem;
-  font-weight: 650;
-  outline: none;
-}
-
-.knowledge-doc-md-editor {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-}
-
-.knowledge-doc-md-editor .w-md-editor {
-  height: 100% !important;
-  min-height: 0;
-  border: none;
-  box-shadow: none;
-  background: transparent;
-  color: #e7e7e7;
-}
-
-.knowledge-doc-md-editor .w-md-editor-toolbar {
-  border-bottom: 1px solid #252525;
-  background: #151515;
-}
-
-.knowledge-doc-md-editor .w-md-editor-content,
-.knowledge-doc-md-editor .w-md-editor-area,
-.knowledge-doc-md-editor .w-md-editor-input,
-.knowledge-doc-md-editor .w-md-editor-text,
-.knowledge-doc-md-editor .w-md-editor-text-input,
-.knowledge-doc-md-editor .w-md-editor-text-pre {
-  background: #151515;
-  color: #e7e7e7;
-}
-
-.knowledge-doc-md-editor .w-md-editor-text-input,
-.knowledge-doc-md-editor .w-md-editor-text-pre>code {
-  font-size: 0.94rem !important;
-  line-height: 1.65 !important;
-  font-family: var(--font-mono) !important;
-}
-
-.knowledge-doc-md-editor .w-md-editor-text-pre {
-  visibility: hidden;
-}
-
-.knowledge-doc-md-editor .w-md-editor-text-input {
-  color: #e7e7e7 !important;
-  caret-color: #ffffff;
-  -webkit-text-fill-color: #e7e7e7 !important;
-}
-
 @media (max-width: 900px) {
   .knowledge-page {
     grid-template-columns: 1fr;
@@ -3187,23 +2938,6 @@
   .knowledge-column-create,
   .knowledge-editor-grid,
   .knowledge-related-create {
-    grid-template-columns: 1fr;
-  }
-
-  .knowledge-doc-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(13rem, 32dvh) minmax(24rem, 1fr);
-    height: auto;
-    min-height: calc(100dvh - 13rem);
-    overflow: visible;
-  }
-
-  .knowledge-doc-explorer {
-    border-right: none;
-    border-bottom: 1px solid #262626;
-  }
-
-  .knowledge-doc-editor-top {
     grid-template-columns: 1fr;
   }
 
@@ -3427,10 +3161,6 @@
 
 .workspace-route-content>.hub-page {
   min-height: 100%;
-}
-
-.workspace-route-content .knowledge-doc-layout {
-  height: 100%;
 }
 
 .settings-page-content {

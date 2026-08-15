@@ -98,8 +98,7 @@ export type EntityType =
   | "customer_request"
   | "pr"
   | "incident"
-  | "note"
-  | "document";
+  | "note";
 
 export type ChecklistItem = {
   id: string;
@@ -115,16 +114,6 @@ export type Entity = {
   content: string;
   properties: Record<string, unknown>;
   created_by_id: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-export type KnowledgeFolder = {
-  id: string;
-  workspace_id: string;
-  parent_id: string | null;
-  title: string;
-  position: number;
   created_at: string;
   updated_at: string;
 };

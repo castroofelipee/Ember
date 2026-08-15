@@ -28,7 +28,6 @@ class EntityType(str, enum.Enum):
     PR = "pr"
     INCIDENT = "incident"
     NOTE = "note"
-    DOCUMENT = "document"
 
 
 class RelationSource(str, enum.Enum):
@@ -57,24 +56,6 @@ class Entity(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_entities_workspace_id", "workspace_id"),
         Index("ix_entities_workspace_type", "workspace_id", "type"),
         Index("ix_entities_workspace_title", "workspace_id", "title"),
-    )
-
-
-class KnowledgeFolder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    __tablename__ = "knowledge_folders"
-
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
-    )
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("knowledge_folders.id", ondelete="CASCADE"), nullable=True
-    )
-    title: Mapped[str] = mapped_column(String(160), nullable=False)
-    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-
-    __table_args__ = (
-        Index("ix_knowledge_folders_workspace_id", "workspace_id"),
-        Index("ix_knowledge_folders_parent_id", "parent_id"),
     )
 
 
