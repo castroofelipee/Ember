@@ -1891,6 +1891,32 @@
 
 .knowledge-header-actions { gap: 0.55rem; }
 
+.knowledge-quadrant-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.knowledge-quadrant-filter-chip {
+  padding: 0.3rem 0.65rem;
+  border: 1px solid #353535;
+  border-radius: 999px;
+  background: #1c1c1c;
+  color: #cfcfcf;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.knowledge-quadrant-filter-chip:hover {
+  border-color: #525252;
+}
+
+.knowledge-quadrant-filter-chip--active {
+  background: #262626;
+  font-weight: 600;
+}
+
 .knowledge-member-stack span,
 .knowledge-member-choice > span:first-child {
   display: inline-flex;
@@ -1958,6 +1984,32 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.knowledge-quadrant-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+}
+
+.knowledge-quadrant-cell {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #353535;
+  border-radius: 0.4rem;
+  background: #222222;
+  color: #cfcfcf;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.knowledge-quadrant-cell:hover {
+  border-color: #525252;
+}
+
+.knowledge-quadrant-cell--active {
+  background: #262626;
+  font-weight: 600;
 }
 
 .knowledge-option-list span,
@@ -2035,6 +2087,29 @@
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 0.75rem;
+}
+
+.knowledge-today-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  padding-bottom: 0.75rem;
+}
+
+.knowledge-today-group h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #cfcfcf;
+}
+
+.knowledge-today-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
 .knowledge-add-column {
@@ -2333,6 +2408,21 @@
 
 .knowledge-card--dragging {
   opacity: 0.45;
+}
+
+/* Eisenhower quadrant, read off the left edge instead of another chip —
+ * the card already carries type/labels/checklist/assignees. "drop" (neither
+ * urgent nor important) stays unstyled so untriaged cards don't look alarming. */
+.knowledge-card--do_now {
+  border-left: 3px solid #dc2626;
+}
+
+.knowledge-card--plan {
+  border-left: 3px solid #2563eb;
+}
+
+.knowledge-card--delegate {
+  border-left: 3px solid #d97706;
 }
 
 /* The line sits in the gap above the card, marking exactly where the dragged

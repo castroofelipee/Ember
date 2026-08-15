@@ -22,6 +22,7 @@ import {
   Columns3,
   FilePlus,
   FileText,
+  Flag,
   Folder,
   FolderPlus,
   GripVertical,
@@ -85,8 +86,22 @@ const RELATED_TYPES: { value: EntityType; label: string }[] = [
   { value: "task", label: "Task" },
 ];
 
-type ViewMode = "board" | "docs";
+type ViewMode = "board" | "docs" | "today";
 type CardRecurrence = "none" | "daily";
+
+/** Eisenhower quadrant, derived from the `urgent`/`important` properties
+ * rather than stored as its own field — two independent axes, not a
+ * four-value enum, so every board gets the same triage for free. */
+type Quadrant = "do_now" | "plan" | "delegate" | "drop";
+
+const QUADRANT_META: Record<Quadrant, { label: string; description: string; color: string }> = {
+  do_now: { label: "Do now", description: "Urgent and important", color: "#dc2626" },
+  plan: { label: "Plan", description: "Important, not urgent", color: "#2563eb" },
+  delegate: { label: "Delegate", description: "Urgent, not important", color: "#d97706" },
+  drop: { label: "Drop", description: "Neither urgent nor important", color: "#9ca3af" },
+};
+
+const QUADRANT_ORDER: Quadrant[] = ["do_now", "plan", "delegate", "drop"];
 type ColumnDropHint = { columnId: string; edge: "before" | "after" } | null;
 /** Where a dragged card would land: immediately above `beforeEntityId`, or at
  * the end of the column when it is null. Anchoring to a neighbour rather than
@@ -412,6 +427,15 @@ function isClosed(entity: Entity): boolean {
   return boolProp(entity, "closed");
 }
 
+function quadrantOf(entity: Entity): Quadrant {
+  const urgent = boolProp(entity, "urgent");
+  const important = boolProp(entity, "important");
+  if (urgent && important) return "do_now";
+  if (important) return "plan";
+  if (urgent) return "delegate";
+  return "drop";
+}
+
 /** Whether a card counts as done *right now*. A daily-recurring card only
  * stays completed for the local day it was completed on; once the user's
  * clock rolls into the next day it resets so it can be completed again. */
@@ -468,6 +492,7 @@ export function BoardsView() {
   const [labelOption, setLabelOption] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<"workflow" | "members">("workflow");
+  const [quadrantFilter, setQuadrantFilter] = useState<Quadrant | null>(null);
 
   const activeBoard = useMemo(
     () => boards.find((board) => board.id === activeBoardId) ?? boards[0] ?? null,
@@ -585,6 +610,8 @@ export function BoardsView() {
     content: string;
     checklist: ChecklistItem[];
     recurrence: CardRecurrence;
+    urgent: boolean;
+    important: boolean;
   }) {
     if (!activeBoard || !data.title.trim()) return;
     const existingCardIds = new Set(activeBoard.cards.map((card) => card.entity.id));
@@ -604,6 +631,8 @@ export function BoardsView() {
             due_date: data.dueDate,
             checklist: data.checklist,
             recurrence: data.recurrence,
+            urgent: data.urgent,
+            important: data.important,
           }),
         },
         "Could not create card.",
@@ -1157,6 +1186,16 @@ export function BoardsView() {
                 <FileText size={15} />
                 Docs
               </button>
+              <button
+                type="button"
+                className={
+                  mode === "today" ? "knowledge-tab knowledge-tab--active" : "knowledge-tab"
+                }
+                onClick={() => setMode("today")}
+              >
+                <Flag size={15} />
+                Today
+              </button>
             </div>
 
             <div className="knowledge-create">
@@ -1192,44 +1231,57 @@ export function BoardsView() {
       <main className="knowledge-main">
         {error && <p className="form-error">{error}</p>}
         {completionNotice && <p className="knowledge-alert">{completionNotice}</p>}
-        <BoardPanel
-          activeBoard={activeBoard}
-          columnTitle={columnTitle}
-          selectedEntity={selectedEntity}
-          onColumnTitleChange={setColumnTitle}
-          onCreateColumn={createColumn}
-          onCreateCard={(column) => setCreatingCardColumn(column)}
-          onUpdateColumn={updateColumn}
-          onDeleteColumn={deleteColumn}
-          onDragStart={(entityId) => {
-            setDraggingEntityId(entityId);
-            setDraggingColumnId(null);
-            setColumnDropHint(null);
-            setCardDropHint(null);
-          }}
-          onDropCard={moveCard}
-          draggingEntityId={draggingEntityId}
-          cardDropHint={cardDropHint}
-          onCardDragOver={setCardDropHint}
-          onCardDragEnd={() => {
-            setDraggingEntityId(null);
-            setCardDropHint(null);
-          }}
-          draggingColumnId={draggingColumnId}
-          columnDropHint={columnDropHint}
-          onColumnDragStart={handleColumnDragStart}
-          onColumnDragOver={handleColumnDragOver}
-          onColumnDrop={handleColumnDrop}
-          onColumnDragEnd={() => {
-            setDraggingColumnId(null);
-            setColumnDropHint(null);
-          }}
-          onSelectEntity={setSelectedEntity}
-          onCloseCard={closeCard}
-          onDeleteCard={deleteCard}
-          members={members}
-          onOpenSettings={(tab) => { setSettingsInitialTab(tab); setSettingsOpen(true); }}
-        />
+        {mode === "today" ? (
+          <TodayPanel
+            boards={boards}
+            members={members}
+            selectedEntity={selectedEntity}
+            onSelectEntity={setSelectedEntity}
+            onCloseCard={closeCard}
+            onDeleteCard={deleteCard}
+          />
+        ) : (
+          <BoardPanel
+            activeBoard={activeBoard}
+            columnTitle={columnTitle}
+            selectedEntity={selectedEntity}
+            onColumnTitleChange={setColumnTitle}
+            onCreateColumn={createColumn}
+            onCreateCard={(column) => setCreatingCardColumn(column)}
+            onUpdateColumn={updateColumn}
+            onDeleteColumn={deleteColumn}
+            onDragStart={(entityId) => {
+              setDraggingEntityId(entityId);
+              setDraggingColumnId(null);
+              setColumnDropHint(null);
+              setCardDropHint(null);
+            }}
+            onDropCard={moveCard}
+            draggingEntityId={draggingEntityId}
+            cardDropHint={cardDropHint}
+            onCardDragOver={setCardDropHint}
+            onCardDragEnd={() => {
+              setDraggingEntityId(null);
+              setCardDropHint(null);
+            }}
+            draggingColumnId={draggingColumnId}
+            columnDropHint={columnDropHint}
+            onColumnDragStart={handleColumnDragStart}
+            onColumnDragOver={handleColumnDragOver}
+            onColumnDrop={handleColumnDrop}
+            onColumnDragEnd={() => {
+              setDraggingColumnId(null);
+              setColumnDropHint(null);
+            }}
+            onSelectEntity={setSelectedEntity}
+            onCloseCard={closeCard}
+            onDeleteCard={deleteCard}
+            members={members}
+            onOpenSettings={(tab) => { setSettingsInitialTab(tab); setSettingsOpen(true); }}
+            quadrantFilter={quadrantFilter}
+            onQuadrantFilterChange={setQuadrantFilter}
+          />
+        )}
       </main>
 
       {selectedEntity && selectedEntity.type !== "document" && (
@@ -1354,6 +1406,8 @@ function BoardPanel({
   onDeleteCard,
   members,
   onOpenSettings,
+  quadrantFilter,
+  onQuadrantFilterChange,
 }: {
   activeBoard: Board | null;
   columnTitle: string;
@@ -1380,6 +1434,8 @@ function BoardPanel({
   onDeleteCard: (entity: Entity) => void;
   members: WorkspaceMember[];
   onOpenSettings: (tab: "workflow" | "members") => void;
+  quadrantFilter: Quadrant | null;
+  onQuadrantFilterChange: (quadrant: Quadrant | null) => void;
 }) {
   const collapsedSnapshot = useSyncExternalStore(
     subscribeCollapsedColumns,
@@ -1424,6 +1480,25 @@ function BoardPanel({
         </div>
       </header>
 
+      <div className="knowledge-quadrant-filter" role="group" aria-label="Filter by priority">
+        {QUADRANT_ORDER.map((quadrant) => {
+          const meta = QUADRANT_META[quadrant];
+          const active = quadrantFilter === quadrant;
+          return (
+            <button
+              type="button"
+              key={quadrant}
+              className={`knowledge-quadrant-filter-chip${active ? " knowledge-quadrant-filter-chip--active" : ""}`}
+              style={active ? { borderColor: meta.color, color: meta.color } : undefined}
+              onClick={() => onQuadrantFilterChange(active ? null : quadrant)}
+              title={meta.description}
+            >
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
+
       {activeBoard.columns.length === 0 ? (
         <section className="knowledge-empty knowledge-empty--compact">
           <Columns3 size={24} />
@@ -1438,10 +1513,23 @@ function BoardPanel({
               .filter((card) => card.column_id === column.id)
               .sort((a, b) => a.position - b.position);
             // Future-scheduled cards are held back until their due date.
-            const cards = columnCards.filter(
+            const visibleCards = columnCards.filter(
               (card) => !isScheduledForFuture(card.entity) && !isClosed(card.entity),
             );
-            const scheduledCount = columnCards.length - cards.length;
+            const filteredCards = quadrantFilter
+              ? visibleCards.filter((card) => quadrantOf(card.entity) === quadrantFilter)
+              : visibleCards;
+            // Display order only — "Do now" floats to the top of the column,
+            // but manual drag order (`position`) is untouched underneath, so
+            // dragging still works exactly as before once the filter clears.
+            const cards = quadrantFilter
+              ? filteredCards
+              : [...filteredCards].sort((a, b) => {
+                  const aFirst = quadrantOf(a.entity) === "do_now" ? 0 : 1;
+                  const bFirst = quadrantOf(b.entity) === "do_now" ? 0 : 1;
+                  return aFirst - bFirst;
+                });
+            const scheduledCount = columnCards.length - visibleCards.length;
             const collapsed = collapsedColumns.has(column.id);
             const dropClass =
               columnDropHint?.columnId === column.id
@@ -1564,6 +1652,86 @@ function BoardPanel({
             onChange={onColumnTitleChange}
             onCreate={onCreateColumn}
           />
+        </section>
+      )}
+    </>
+  );
+}
+
+/** The day's "frog" (Eat That Frog): every "Do now" card across every board,
+ * client-filtered from data `loadKnowledge` already fetched — no dedicated
+ * endpoint needed. Cards stay grouped by their own board so the source is
+ * still obvious once pulled out of its column. */
+function TodayPanel({
+  boards,
+  members,
+  selectedEntity,
+  onSelectEntity,
+  onCloseCard,
+  onDeleteCard,
+}: {
+  boards: Board[];
+  members: WorkspaceMember[];
+  selectedEntity: Entity | null;
+  onSelectEntity: (entity: Entity) => void;
+  onCloseCard: (entity: Entity) => void;
+  onDeleteCard: (entity: Entity) => void;
+}) {
+  const groups = boards
+    .map((board) => ({
+      board,
+      cards: board.cards.filter(
+        (card) =>
+          quadrantOf(card.entity) === "do_now" &&
+          !isEffectivelyCompleted(card.entity) &&
+          !isScheduledForFuture(card.entity) &&
+          !isClosed(card.entity),
+      ),
+    }))
+    .filter((group) => group.cards.length > 0);
+
+  return (
+    <>
+      <header className="knowledge-header">
+        <div>
+          <p className="mail-list-kicker">Across every board</p>
+          <h1>Today</h1>
+        </div>
+      </header>
+
+      {groups.length === 0 ? (
+        <section className="knowledge-empty knowledge-empty--compact">
+          <Flag size={24} />
+          <h1>Nothing urgent and important</h1>
+          <p>Cards marked "Do now" show up here, grouped by board, until they're closed.</p>
+        </section>
+      ) : (
+        <section className="knowledge-today-groups">
+          {groups.map(({ board, cards }) => (
+            <div className="knowledge-today-group" key={board.id}>
+              <h2>{board.title}</h2>
+              <div className="knowledge-today-cards">
+                {cards.map((card) => (
+                  <BoardCardView
+                    key={card.entity.id}
+                    card={card}
+                    board={board}
+                    members={members}
+                    active={selectedEntity?.id === card.entity.id}
+                    dropBefore={false}
+                    dragging={false}
+                    onSelect={() => onSelectEntity(card.entity)}
+                    onDragStart={() => {}}
+                    onDragOver={() => {}}
+                    onDrop={() => {}}
+                    onDragEnd={() => {}}
+                    onClose={() => onCloseCard(card.entity)}
+                    onDelete={() => onDeleteCard(card.entity)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
         </section>
       )}
     </>
@@ -2268,10 +2436,11 @@ function BoardCardView({
   const completed = isEffectivelyCompleted(card.entity);
   const recurringDaily = isDailyRecurring(card.entity);
   const hasDescription = card.entity.content.trim().length > 0;
+  const quadrant = quadrantOf(card.entity);
 
   return (
     <article
-      className={`knowledge-card${active ? " knowledge-card--active" : ""}${completed ? " knowledge-card--completed" : ""}${dropBefore ? " knowledge-card--drop-before" : ""}${dragging ? " knowledge-card--dragging" : ""}`}
+      className={`knowledge-card knowledge-card--${quadrant}${active ? " knowledge-card--active" : ""}${completed ? " knowledge-card--completed" : ""}${dropBefore ? " knowledge-card--drop-before" : ""}${dragging ? " knowledge-card--dragging" : ""}`}
       draggable
       role="button"
       tabIndex={0}
@@ -2499,6 +2668,47 @@ function MemberPicker({ members, selected, onChange }: {
   </div>;
 }
 
+/** Shared 2x2 Eisenhower picker for the create/edit drawers. Selecting a
+ * cell sets both `urgent`/`important` at once — one decision, not two
+ * independent toggles a user has to reconcile in their head. */
+function QuadrantPicker({
+  urgent,
+  important,
+  onChange,
+}: {
+  urgent: boolean;
+  important: boolean;
+  onChange: (urgent: boolean, important: boolean) => void;
+}) {
+  const active: Quadrant = urgent && important ? "do_now" : important ? "plan" : urgent ? "delegate" : "drop";
+  const cellFor: Record<Quadrant, [boolean, boolean]> = {
+    do_now: [true, true],
+    plan: [false, true],
+    delegate: [true, false],
+    drop: [false, false],
+  };
+  return (
+    <div className="knowledge-quadrant-picker">
+      {QUADRANT_ORDER.map((quadrant) => {
+        const [nextUrgent, nextImportant] = cellFor[quadrant];
+        const meta = QUADRANT_META[quadrant];
+        return (
+          <button
+            type="button"
+            key={quadrant}
+            className={`knowledge-quadrant-cell${active === quadrant ? " knowledge-quadrant-cell--active" : ""}`}
+            style={active === quadrant ? { borderColor: meta.color, color: meta.color } : undefined}
+            onClick={() => onChange(nextUrgent, nextImportant)}
+            title={meta.description}
+          >
+            {meta.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function CardCreateDrawer({
   column,
   board,
@@ -2523,6 +2733,8 @@ function CardCreateDrawer({
     content: string;
     checklist: ChecklistItem[];
     recurrence: CardRecurrence;
+    urgent: boolean;
+    important: boolean;
   }) => void;
 }) {
   const [title, setTitle] = useState("");
@@ -2532,6 +2744,8 @@ function CardCreateDrawer({
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [dueDate, setDueDate] = useState("");
   const [recurrence, setRecurrence] = useState<CardRecurrence>("none");
+  const [urgent, setUrgent] = useState(false);
+  const [important, setImportant] = useState(false);
   const [content, setContent] = useState("");
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [checklistInput, setChecklistInput] = useState("");
@@ -2555,6 +2769,8 @@ function CardCreateDrawer({
       content,
       checklist,
       recurrence,
+      urgent,
+      important,
     });
   }
 
@@ -2609,6 +2825,13 @@ function CardCreateDrawer({
             </span>
             <MemberPicker members={members} selected={assigneeIds} onChange={(ids) => { setAssigneeIds(ids); setAssignees(members.filter((member) => ids.includes(member.user_id)).map((member) => member.display_name)); }} />
           </div>
+        </div>
+        <div className="event-dialog-field">
+          <span className="event-dialog-label">
+            <Flag size={14} />
+            Priority
+          </span>
+          <QuadrantPicker urgent={urgent} important={important} onChange={(nextUrgent, nextImportant) => { setUrgent(nextUrgent); setImportant(nextImportant); }} />
         </div>
         <label className="event-dialog-field">
           <span className="event-dialog-label">
@@ -2739,6 +2962,8 @@ function EntityDrawer({
   );
   const [checklist, setChecklist] = useState<ChecklistItem[]>(checklistProp(entity));
   const [checklistInput, setChecklistInput] = useState("");
+  const [urgent, setUrgent] = useState(boolProp(entity, "urgent"));
+  const [important, setImportant] = useState(boolProp(entity, "important"));
   const [related, setRelated] = useState<RelatedEntity[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Entity[]>([]);
@@ -2766,6 +2991,8 @@ function EntityDrawer({
     setDueDate(stringProp(entity, "due_date"));
     setRecurrence(stringProp(entity, "recurrence") === "daily" ? "daily" : "none");
     setChecklist(checklistProp(entity));
+    setUrgent(boolProp(entity, "urgent"));
+    setImportant(boolProp(entity, "important"));
     setDrawerError(null);
     void loadRelated();
   }, [entity, loadRelated, members]);
@@ -2785,6 +3012,8 @@ function EntityDrawer({
           due_date: dueDate,
           checklist,
           recurrence,
+          urgent,
+          important,
         },
       }),
     });
@@ -2934,6 +3163,14 @@ function EntityDrawer({
             </span>
             <MemberPicker members={members} selected={assigneeIds} onChange={(ids) => { setAssigneeIds(ids); setAssignees(members.filter((member) => ids.includes(member.user_id)).map((member) => member.display_name)); }} />
           </div>
+        </div>
+
+        <div className="event-dialog-field">
+          <span className="event-dialog-label">
+            <Flag size={14} />
+            Priority
+          </span>
+          <QuadrantPicker urgent={urgent} important={important} onChange={(nextUrgent, nextImportant) => { setUrgent(nextUrgent); setImportant(nextImportant); }} />
         </div>
 
         <label className="event-dialog-field">
