@@ -39,6 +39,7 @@ import {
   Share2,
   Tag,
   Trash2,
+  Undo2,
   UserRound,
   X,
 } from "lucide-react";
@@ -88,6 +89,20 @@ const RELATED_TYPES: { value: EntityType; label: string }[] = [
 
 type ViewMode = "board" | "docs" | "today";
 type CardRecurrence = "none" | "daily";
+
+/** A destructive action (complete/delete) that's been applied optimistically
+ * to local state but not yet sent to the server. `timeoutId` fires the real
+ * request once the undo window elapses; clicking Undo clears it instead and
+ * restores the card, so nothing ever reaches the server. */
+type PendingAction = {
+  key: string;
+  kind: "complete" | "delete";
+  card: BoardCard;
+  boardId: string;
+  timeoutId: number;
+};
+
+const UNDO_WINDOW_MS = 6000;
 
 /** Eisenhower quadrant, derived from the `urgent`/`important` properties
  * rather than stored as its own field — two independent axes, not a
@@ -486,7 +501,7 @@ export function BoardsView() {
   const [cardDropHint, setCardDropHint] = useState<CardDropHint>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [completionNotice, setCompletionNotice] = useState<string | null>(null);
+  const [pendingActions, setPendingActions] = useState<PendingAction[]>([]);
   const [boardToDelete, setBoardToDelete] = useState<Board | null>(null);
   const [deletingBoard, setDeletingBoard] = useState(false);
   const [labelOption, setLabelOption] = useState("");
@@ -535,11 +550,60 @@ export function BoardsView() {
     void loadKnowledge();
   }, [loadKnowledge]);
 
-  useEffect(() => {
-    if (!completionNotice) return;
-    const timeout = window.setTimeout(() => setCompletionNotice(null), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [completionNotice]);
+  /** Finds which board currently holds a card for this entity. `activeBoard`
+   * alone isn't enough — the Today tab surfaces cards from every board, so a
+   * close/delete triggered there can target a board that isn't the active one. */
+  function findCardBoard(entityId: string): { board: Board; card: BoardCard } | null {
+    for (const board of boards) {
+      const card = board.cards.find((c) => c.entity.id === entityId);
+      if (card) return { board, card };
+    }
+    return null;
+  }
+
+  /** Hides the card locally right away and defers the real request until the
+   * undo window elapses. The timeout is a plain `window.setTimeout`, not tied
+   * to this component's lifecycle, so a pending commit still lands even if
+   * the user navigates away before it fires — only clicking Undo cancels it. */
+  function schedulePendingAction(
+    kind: PendingAction["kind"],
+    board: Board,
+    card: BoardCard,
+    commit: () => Promise<void>,
+  ) {
+    const key = `${kind}:${card.entity.id}`;
+    setBoards((prev) =>
+      prev.map((b) =>
+        b.id === board.id ? { ...b, cards: b.cards.filter((c) => c.entity.id !== card.entity.id) } : b,
+      ),
+    );
+    setSelectedEntity((current) => (current?.id === card.entity.id ? null : current));
+
+    const timeoutId = window.setTimeout(() => {
+      setPendingActions((prev) => prev.filter((action) => action.key !== key));
+      commit().catch((error) => {
+        setError(error instanceof Error ? error.message : "Could not save that change.");
+        // Local state already dropped the card optimistically but the commit
+        // failed server-side — reconcile with what's actually there.
+        void loadKnowledge();
+      });
+    }, UNDO_WINDOW_MS);
+
+    setPendingActions((prev) => [...prev, { key, kind, card, boardId: board.id, timeoutId }]);
+  }
+
+  function undoPendingAction(key: string) {
+    // Side effects (clearTimeout, setBoards) must stay out of the
+    // setPendingActions updater — React (Strict Mode, dev) can invoke a
+    // functional updater twice, which would double-restore the card.
+    const action = pendingActions.find((a) => a.key === key);
+    if (!action) return;
+    window.clearTimeout(action.timeoutId);
+    setPendingActions((prev) => prev.filter((a) => a.key !== key));
+    setBoards((prev) =>
+      prev.map((b) => (b.id === action.boardId ? { ...b, cards: [...b.cards, action.card] } : b)),
+    );
+  }
 
   async function createBoard() {
     if (!boardTitle.trim()) return;
@@ -1052,8 +1116,40 @@ export function BoardsView() {
 
   async function closeCard(entity: Entity) {
     const recurringDaily = isDailyRecurring(entity);
-    try {
-      const updated = await jsonRequest<Entity>(
+    // A daily habit's "done today" flip resets on its own at local midnight
+    // (see isEffectivelyCompleted) and the card stays put on the board, so
+    // there's nothing here worth an undo window for — commit immediately.
+    if (recurringDaily) {
+      try {
+        const updated = await jsonRequest<Entity>(
+          `/api/workspaces/${workspaceId}/entities/${entity.id}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              properties: {
+                ...entity.properties,
+                completed: true,
+                completed_at: new Date().toISOString(),
+                closed: false,
+                closed_at: "",
+              },
+            }),
+          },
+          "Could not close card.",
+        );
+        updateEntityInState(updated);
+        setSelectedEntity(updated);
+        setError(null);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Could not close card.");
+      }
+      return;
+    }
+
+    const found = findCardBoard(entity.id);
+    if (!found) return;
+    schedulePendingAction("complete", found.board, found.card, async () => {
+      await jsonRequest<Entity>(
         `/api/workspaces/${workspaceId}/entities/${entity.id}`,
         {
           method: "PATCH",
@@ -1062,51 +1158,25 @@ export function BoardsView() {
               ...entity.properties,
               completed: true,
               completed_at: new Date().toISOString(),
-              closed: recurringDaily ? false : true,
-              closed_at: recurringDaily ? "" : new Date().toISOString(),
+              closed: true,
+              closed_at: new Date().toISOString(),
             },
           }),
         },
         "Could not close card.",
       );
-      updateEntityInState(updated);
-      if (recurringDaily) {
-        setSelectedEntity(updated);
-      } else {
-        setSelectedEntity((current) => (current?.id === entity.id ? null : current));
-        setCompletionNotice("Task completed and closed. It has been removed from the board.");
-      }
-      setError(null);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not close card.");
-    }
-  }
-
-  /** Finds which board currently holds a card for this entity. `activeBoard`
-   * alone isn't enough — the Today tab surfaces cards from every board, so a
-   * delete triggered there can target a board that isn't the active one. */
-  function findCardBoard(entityId: string): Board | null {
-    return boards.find((board) => board.cards.some((card) => card.entity.id === entityId)) ?? null;
+    });
   }
 
   async function deleteCard(entity: Entity) {
-    const board = findCardBoard(entity.id);
-    if (!board) return;
-    try {
+    const found = findCardBoard(entity.id);
+    if (!found) return;
+    schedulePendingAction("delete", found.board, found.card, async () => {
       const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error(await responseError(response, "Could not delete card."));
-      setBoards((prev) =>
-        prev.map((b) =>
-          b.id === board.id ? { ...b, cards: b.cards.filter((card) => card.entity.id !== entity.id) } : b,
-        ),
-      );
-      setSelectedEntity((current) => (current?.id === entity.id ? null : current));
-      setError(null);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not delete card.");
-    }
+    });
   }
 
   if (authStatus !== "ready" || loading) {
@@ -1121,6 +1191,7 @@ export function BoardsView() {
     return (
       <div className="knowledge-page knowledge-page--docs-only">
         {error && <p className="form-error">{error}</p>}
+        <UndoToastStack pendingActions={pendingActions} onUndo={undoPendingAction} />
         <DocsPanel
           folders={folders}
           documents={documents}
@@ -1236,7 +1307,7 @@ export function BoardsView() {
 
       <main className="knowledge-main">
         {error && <p className="form-error">{error}</p>}
-        {completionNotice && <p className="knowledge-alert">{completionNotice}</p>}
+        <UndoToastStack pendingActions={pendingActions} onUndo={undoPendingAction} />
         {mode === "today" ? (
           <TodayPanel
             boards={boards}
@@ -1668,6 +1739,31 @@ function BoardPanel({
  * client-filtered from data `loadKnowledge` already fetched — no dedicated
  * endpoint needed. Cards stay grouped by their own board so the source is
  * still obvious once pulled out of its column. */
+/** Bottom-right stack of undo snackbars for optimistically-applied
+ * complete/delete actions — see schedulePendingAction/undoPendingAction. */
+function UndoToastStack({
+  pendingActions,
+  onUndo,
+}: {
+  pendingActions: PendingAction[];
+  onUndo: (key: string) => void;
+}) {
+  if (pendingActions.length === 0) return null;
+  return (
+    <div className="knowledge-undo-stack">
+      {pendingActions.map((action) => (
+        <div className="knowledge-undo-toast" key={action.key}>
+          <span>{action.kind === "delete" ? "Task deleted." : "Task completed."}</span>
+          <button type="button" onClick={() => onUndo(action.key)}>
+            <Undo2 size={14} />
+            Undo
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TodayPanel({
   boards,
   members,
