@@ -530,6 +530,8 @@ async def create_board_card_route(
                 "assignee_ids": assignee_ids,
                 "due_date": data.due_date,
                 "recurrence": data.recurrence,
+                "urgent": data.urgent,
+                "important": data.important,
             },
         ),
     )

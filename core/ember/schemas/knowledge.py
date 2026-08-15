@@ -266,6 +266,8 @@ class BoardCardCreateWithEntityRequest(BaseModel):
     due_date: str = Field(default="", max_length=40)
     recurrence: Literal["none", "daily"] = "none"
     checklist: list[dict] = Field(default_factory=list)
+    urgent: bool = False
+    important: bool = False
 
     @field_validator("title")
     @classmethod
