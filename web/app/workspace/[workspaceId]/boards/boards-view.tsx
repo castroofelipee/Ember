@@ -1082,18 +1082,24 @@ export function BoardsView() {
     }
   }
 
+  /** Finds which board currently holds a card for this entity. `activeBoard`
+   * alone isn't enough — the Today tab surfaces cards from every board, so a
+   * delete triggered there can target a board that isn't the active one. */
+  function findCardBoard(entityId: string): Board | null {
+    return boards.find((board) => board.cards.some((card) => card.entity.id === entityId)) ?? null;
+  }
+
   async function deleteCard(entity: Entity) {
-    if (!activeBoard) return;
+    const board = findCardBoard(entity.id);
+    if (!board) return;
     try {
       const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error(await responseError(response, "Could not delete card."));
       setBoards((prev) =>
-        prev.map((board) =>
-          board.id === activeBoard.id
-            ? { ...board, cards: board.cards.filter((card) => card.entity.id !== entity.id) }
-            : board,
+        prev.map((b) =>
+          b.id === board.id ? { ...b, cards: b.cards.filter((card) => card.entity.id !== entity.id) } : b,
         ),
       );
       setSelectedEntity((current) => (current?.id === entity.id ? null : current));
