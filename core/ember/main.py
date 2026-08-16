@@ -47,3 +47,8 @@ app.include_router(mail_router)
 app.include_router(users_router)
 app.include_router(workspaces_router)
 app.include_router(personal_router)
+
+
+@app.get("/sentry-debug")
+async def trigger_error():
+    division_by_zero = 1 / 0
