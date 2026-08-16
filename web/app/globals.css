@@ -1590,6 +1590,43 @@
   font-weight: 700;
 }
 
+.mail-reader-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mail-reader-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.35rem;
+  padding: 0 0.85rem;
+  flex-shrink: 0;
+  border: 1px solid #3a3a3a;
+  border-radius: 999px;
+  background: transparent;
+  color: #e5e5e5;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.mail-reader-action:hover:not(:disabled) {
+  border-color: #555;
+  background: #262626;
+}
+
+.mail-reader-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .mail-message-stack {
   display: flex;
   flex-direction: column;

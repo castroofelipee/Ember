@@ -20,6 +20,7 @@ import {
   Send,
   Settings,
   ShieldAlert,
+  ShieldCheck,
   Star,
   Trash2,
 } from "lucide-react";
@@ -212,6 +213,7 @@ export function MailView() {
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [markingRead, setMarkingRead] = useState(false);
+  const [markingNotSpam, setMarkingNotSpam] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -290,6 +292,36 @@ export function MailView() {
     setMarkingRead(false);
     // Reconcile with the server so counts stay correct even if mail arrived
     // between the mark and the refresh.
+    void loadThreads(folder, page);
+  }
+
+  async function markSelectedNotSpam() {
+    if (folder !== "junk" || !selected || markingNotSpam) return;
+
+    setMarkingNotSpam(true);
+    setError(null);
+    const response = await apiFetch(
+      messageUrl(workspaceId, selected.account_id, selected.latest_message.id),
+      {
+        method: "PATCH",
+        body: JSON.stringify({ folder: "inbox" }),
+      },
+    );
+
+    if (!response.ok) {
+      const detail = await response
+        .json()
+        .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+        .catch(() => null);
+      setError(detail ?? "Could not move this message to the inbox.");
+      setMarkingNotSpam(false);
+      return;
+    }
+
+    setThreads((items) => items.filter((item) => item.thread_id !== selected.thread_id));
+    setSelected(null);
+    setThread(null);
+    setMarkingNotSpam(false);
     void loadThreads(folder, page);
   }
 
@@ -593,9 +625,22 @@ export function MailView() {
                         <h2>{selected.subject || "(no subject)"}</h2>
                       </div>
                     </div>
-                    <button type="button" className="mail-icon-button" aria-label="More actions">
-                      <MoreVertical size={18} />
-                    </button>
+                    <div className="mail-reader-actions">
+                      {folder === "junk" && (
+                        <button
+                          type="button"
+                          className="mail-reader-action"
+                          disabled={markingNotSpam}
+                          onClick={() => void markSelectedNotSpam()}
+                        >
+                          <ShieldCheck size={17} />
+                          {markingNotSpam ? "Moving..." : "Not spam"}
+                        </button>
+                      )}
+                      <button type="button" className="mail-icon-button" aria-label="More actions">
+                        <MoreVertical size={18} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="mail-message-stack">
