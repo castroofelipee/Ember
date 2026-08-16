@@ -1,9 +1,10 @@
+import sentry_sdk
 from fastapi import FastAPI
 # pyrefly: ignore [missing-import]
 from fastapi_env_banner import EnvBannerConfig, EnvBannerMiddleware, setup_swagger_ui
 from fastapi.middleware.cors import CORSMiddleware
 
-from ember.config import env
+from ember.config import env, sentry_enabled
 from ember.routers.auth import router as auth_router
 from ember.routers.events import router as events_router
 from ember.routers.github import router as github_router
@@ -13,6 +14,15 @@ from ember.routers.mail import router as mail_router
 from ember.routers.users import router as users_router
 from ember.routers.workspaces import router as workspaces_router
 from ember.routers.personal import router as personal_router
+
+if sentry_enabled():
+    sentry_sdk.init(
+        dsn=env["SENTRY_DSN"],
+        environment=env["ENVIRONMENT"],
+        send_default_pii=True,
+        enable_logs=True,
+        traces_sample_rate=float(env["SENTRY_TRACES_SAMPLE_RATE"]),
+    )
 
 banner_config = EnvBannerConfig.from_env("ENVIRONMENT")
 app = FastAPI(title=f"Ember ({env['ENVIRONMENT']})", docs_url=None)

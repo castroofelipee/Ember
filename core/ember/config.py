@@ -1,4 +1,4 @@
-from venvalid import bool_, int_, str_, venvalid
+from venvalid import bool_, decimal_, int_, str_, venvalid
 
 env = venvalid(
     {
@@ -50,6 +50,8 @@ env = venvalid(
         "GITHUB_HTTP_TIMEOUT_SECONDS": int_(default=15),
         "GITHUB_TOKEN_ENCRYPTION_KEY": str_(default=""),
         "PUBLIC_APP_URL": str_(default="http://localhost:6000"),
+        "SENTRY_DSN": str_(default=""),
+        "SENTRY_TRACES_SAMPLE_RATE": decimal_(default="1.0"),
     }
 )
 
@@ -92,6 +94,12 @@ def cloudflare_dns_configured() -> bool:
     domains. Mirrors `mail_enabled()`'s role of centralizing the on/off
     decision."""
     return bool(env["CLOUDFLARE_API_TOKEN"])
+
+
+def sentry_enabled() -> bool:
+    """Whether error/performance monitoring should be wired up. Mirrors
+    `mail_enabled()`'s role of centralizing the on/off decision."""
+    return bool(env["SENTRY_DSN"])
 
 
 def github_configured() -> bool:

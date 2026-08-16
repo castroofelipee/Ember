@@ -25,6 +25,7 @@ dependencies = [
     "venvalid>=0.3.0",
     "cloudinary>=1.45.0",
     "python-multipart>=0.0.32",
+    "sentry-sdk[fastapi]>=2.68.0",
 ]
 
 [build-system]
