@@ -1,5 +1,6 @@
 import sentry_sdk
 from fastapi import FastAPI
+
 # pyrefly: ignore [missing-import]
 from fastapi_env_banner import EnvBannerConfig, EnvBannerMiddleware, setup_swagger_ui
 from fastapi.middleware.cors import CORSMiddleware

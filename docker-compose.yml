@@ -35,6 +35,8 @@ services:
       GITHUB_HTTP_TIMEOUT_SECONDS: ${GITHUB_HTTP_TIMEOUT_SECONDS:-15}
       # Where the OAuth callback sends the browser back to.
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:6000}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-1.0}
     expose:
       - "9000"
     restart: unless-stopped
@@ -58,6 +60,8 @@ services:
       MAIL_ADMIN_TOKEN: ${MAIL_ADMIN_TOKEN}
       MAIL_HTTP_TIMEOUT_SECONDS: ${MAIL_HTTP_TIMEOUT_SECONDS:-10}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-1.0}
     command: ["procrastinate", "--app=ember.jobs.app.app", "worker"]
     depends_on:
       - api
