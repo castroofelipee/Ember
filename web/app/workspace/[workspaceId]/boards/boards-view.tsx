@@ -2667,7 +2667,7 @@ function EntityDrawer({
     void loadRelated();
   }, [entity, loadRelated, members]);
 
-  async function saveEntity() {
+  async function saveEntity(overrides?: { checklist?: ChecklistItem[] }) {
     const response = await apiFetch(`/api/workspaces/${workspaceId}/entities/${entity.id}`, {
       method: "PATCH",
       body: JSON.stringify({
@@ -2680,7 +2680,7 @@ function EntityDrawer({
           assignees,
           assignee_ids: assigneeIds,
           due_date: dueDate,
-          checklist,
+          checklist: overrides?.checklist ?? checklist,
           recurrence,
           urgent,
           important,
@@ -2760,11 +2760,27 @@ function EntityDrawer({
     setDrawerError(null);
   }
 
-  function addChecklistItem() {
+  async function addChecklistItem() {
     const text = checklistInput.trim();
     if (!text) return;
-    setChecklist((prev) => [...prev, { id: crypto.randomUUID(), text, done: false }]);
+    const nextChecklist = [...checklist, { id: crypto.randomUUID(), text, done: false }];
+    setChecklist(nextChecklist);
     setChecklistInput("");
+    await saveEntity({ checklist: nextChecklist });
+  }
+
+  async function toggleChecklistItem(id: string, done: boolean) {
+    const nextChecklist = checklist.map((candidate) =>
+      candidate.id === id ? { ...candidate, done } : candidate,
+    );
+    setChecklist(nextChecklist);
+    await saveEntity({ checklist: nextChecklist });
+  }
+
+  async function removeChecklistItem(id: string) {
+    const nextChecklist = checklist.filter((candidate) => candidate.id !== id);
+    setChecklist(nextChecklist);
+    await saveEntity({ checklist: nextChecklist });
   }
 
   return (
@@ -2877,19 +2893,13 @@ function EntityDrawer({
               <input
                 type="checkbox"
                 checked={item.done}
-                onChange={(event) =>
-                  setChecklist((prev) =>
-                    prev.map((candidate) =>
-                      candidate.id === item.id ? { ...candidate, done: event.target.checked } : candidate,
-                    ),
-                  )
-                }
+                onChange={(event) => void toggleChecklistItem(item.id, event.target.checked)}
               />
               <span>{item.text}</span>
               <button
                 type="button"
                 aria-label="Remove checklist item"
-                onClick={() => setChecklist((prev) => prev.filter((candidate) => candidate.id !== item.id))}
+                onClick={() => void removeChecklistItem(item.id)}
               >
                 <X size={13} />
               </button>
@@ -2924,7 +2934,7 @@ function EntityDrawer({
           />
         </label>
 
-        <Button type="button" onClick={saveEntity}>
+        <Button type="button" onClick={() => void saveEntity()}>
           <Save />
           Save
         </Button>
