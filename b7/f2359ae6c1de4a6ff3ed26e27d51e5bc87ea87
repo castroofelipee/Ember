@@ -1,0 +1,22 @@
+web/app/workspace/[workspaceId]/boards/boards-view.tsx
+  s_aec71deb057d56::t_baa0605422ddaf 2763,2766-2767,2769-2783
+  s_aec71deb057d56::t_c34680a1c051c1 2896,2902
+  s_aec71deb057d56::t_3ab235966f4722 2937
+  s_aec71deb057d56::t_b6cd33e8ee0e08 2670,2683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b7f2359ae6c1de4a6ff3ed26e27d51e5bc87ea87",
+  "prompts": {},
+  "sessions": {
+    "s_aec71deb057d56": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "307afa65-a284-4d28-9d91-edc082e5a3a9",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Felipe Castro <castroofelipee19@gmail.com>"
+    }
+  }
+}
