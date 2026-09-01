@@ -969,7 +969,7 @@ async def test_ensure_dns_server_creates_when_not_found() -> None:
     create_fields = calls[1]["methodCalls"][0][1]["create"]["new1"]
     assert create_fields == {
         "@type": "Cloudflare",
-        "secret": "secret-token",
+        "secret": {"@type": "Value", "secret": "secret-token"},
         "description": "ember-cloudflare",
     }
 

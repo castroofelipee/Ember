@@ -518,7 +518,11 @@ class StalwartMailClient(MailClient):
                         "create": {
                             self._CREATE_KEY: {
                                 "@type": "Cloudflare",
-                                "secret": secret,
+                                # `secret` is Stalwart's multi-variant SecretKey
+                                # (Value / EnvironmentVariable / File), so it
+                                # carries its own "@type" tag; a bare string is
+                                # rejected with invalidPatch.
+                                "secret": {"@type": "Value", "secret": secret},
                                 "description": description,
                             }
                         }
