@@ -1,3 +1,6 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 import sentry_sdk
 from fastapi import FastAPI
 
@@ -6,6 +9,7 @@ from fastapi_env_banner import EnvBannerConfig, EnvBannerMiddleware, setup_swagg
 from fastapi.middleware.cors import CORSMiddleware
 
 from ember.config import env, sentry_enabled
+from ember.jobs.app import app as jobs_app
 from ember.routers.auth import router as auth_router
 from ember.routers.events import router as events_router
 from ember.routers.github import router as github_router
@@ -25,8 +29,21 @@ if sentry_enabled():
         traces_sample_rate=float(env["SENTRY_TRACES_SAMPLE_RATE"]),
     )
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    """Hold the Procrastinate connection pool open for the process lifetime.
+
+    Deferring a job (`task.defer_async(...)`) reads `connector.pool`, which
+    raises `AppNotOpen` until the app has been opened — the API process has to
+    open it explicitly, the same way the worker command does.
+    """
+    async with jobs_app.open_async():
+        yield
+
+
 banner_config = EnvBannerConfig.from_env("ENVIRONMENT")
-app = FastAPI(title=f"Ember ({env['ENVIRONMENT']})", docs_url=None)
+app = FastAPI(title=f"Ember ({env['ENVIRONMENT']})", docs_url=None, lifespan=lifespan)
 
 app.add_middleware(EnvBannerMiddleware, config=banner_config)
 app.add_middleware(

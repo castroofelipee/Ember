@@ -7,8 +7,10 @@ it stores its queue in the app's own database and uses LISTEN/NOTIFY for wakeups
 docs/background-jobs.md for the rationale.
 
 Construction does no I/O; the connection pool opens only when the app is
-`open`ed (in the worker) or a job is deferred. Task modules are listed in
-`import_paths` so the worker discovers them at startup.
+`open`ed — by the `procrastinate worker` command in the worker process, and by
+the API's lifespan in `ember.main`. Deferring a job before that raises
+`AppNotOpen`. Task modules are listed in `import_paths` so the worker discovers
+them at startup.
 """
 
 from procrastinate import App, PsycopgConnector
