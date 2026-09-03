@@ -70,12 +70,10 @@ services:
   web:
     build:
       context: ./web
-      args:
-        # Next.js compiles rewrites into routes-manifest.json during `next build`.
-        # Supplying this only under `environment` is too late: the production
-        # image would keep the Dockerfile fallback and proxy /api to itself.
-        BACKEND_URL: http://api:9000
     environment:
+      # Read at request time by the /api catch-all route. `api` is the Compose
+      # service name on this application's private network.
+      BACKEND_URL: http://api:9000
       SIGNUP_ENABLED: ${SIGNUP_ENABLED:-true}
     ports:
       - "6000:6000"
