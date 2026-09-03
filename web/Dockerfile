@@ -3,6 +3,11 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Rewrites are resolved by `next build`, not when the standalone server starts.
+# `api` is the Compose service name and is resolvable when the container runs.
+ARG BACKEND_URL=http://api:9000
+ENV BACKEND_URL=${BACKEND_URL}
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
